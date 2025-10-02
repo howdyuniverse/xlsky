@@ -1,0 +1,66 @@
+body {
+    background-color: #f8f9fa;
+}
+
+/* Use Bootstrap's d-none instead of .hidden */
+.d-none {
+    display: none !important;
+}
+
+#card-container {
+    max-width: 600px;
+    height: 400px;
+    border: 1px solid #ddd;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    background-color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#display-image {
+    object-fit: contain;
+}
+
+.tutorial-image {
+    max-width: 100%;
+    margin-top: 15px;
+    border: 1px solid #ddd;
+}
+
+#results-table .preview-image {
+    max-width: 100px;
+    max-height: 100px;
+    object-fit: contain;
+}
+
+/* Custom classification colors for table cells */
+#results-table .classification-yes {
+    background-color: #d1e7dd; /* Bootstrap's success background color */
+}
+
+#results-table .classification-no {
+    background-color: #f8d7da; /* Bootstrap's danger background color */
+}
+
+#results-table .classification-problematic {
+    background-color: #fff3cd; /* Bootstrap's warning background color */
+}
+
+/* Custom styles for classification buttons to keep the colors */
+#no-btn {
+    background-color: #f8d7da;
+    color: #58151d;
+    min-width: 80px;
+}
+
+#yes-btn {
+    background-color: #d1e7dd;
+    color: #0f5132;
+    min-width: 80px;
+}
+
+#problematic-btn {
+    background-color: #fff3cd;
+    color: #664d03;
+}
