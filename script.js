@@ -55,6 +55,67 @@ async function saveState() {
     }, 'appState');
 }
 
+async function saveAllImagesToDB() {
+    if (!db || !zipInstance) return;
+    
+    try {
+        console.log(`Saving all ${imageFiles.length} images to IndexedDB...`);
+        const savedImages = {};
+        
+        for (let i = 0; i < imageFiles.length; i++) {
+            const imageFile = imageFiles[i];
+            if (imageFile.zipEntry) {
+                statusText.textContent = `Збереження зображень: ${i + 1} з ${imageFiles.length}`;
+                const blob = await imageFile.zipEntry.async('blob');
+                savedImages[imageFile.name] = blob;
+            }
+        }
+        
+        await db.put('state', savedImages, 'allImages');
+        console.log(`Successfully saved ${imageFiles.length} images to IndexedDB`);
+        
+        // Update imageFiles to remove zipEntry dependency
+        imageFiles = imageFiles.map(file => ({ name: file.name }));
+        zipInstance = null; // No longer needed
+        
+    } catch (error) {
+        console.error('Failed to save images to IndexedDB:', error);
+        statusText.textContent = 'Помилка збереження зображень. Спробуйте ще раз.';
+    }
+}
+
+async function getImageFromDB(fileName) {
+    if (!db) return null;
+    
+    try {
+        const allImages = await db.get('state', 'allImages');
+        return allImages && allImages[fileName] ? allImages[fileName] : null;
+    } catch (error) {
+        console.warn('Failed to get image from DB:', error);
+        return null;
+    }
+}
+
+async function loadState() {
+    if (!db) return false;
+    const savedState = await db.get('state', 'appState');
+    if (savedState && savedState.imageFiles && savedState.imageFiles.length > 0) {
+        // Check if we have images in DB
+        const allImages = await db.get('state', 'allImages');
+        if (allImages) {
+            imageFiles = savedState.imageFiles;
+            currentIndex = savedState.currentIndex;
+            results = savedState.results;
+            if (savedState.rowsPerPage) {
+                rowsPerPage = savedState.rowsPerPage;
+                rowsPerPageSelect.value = savedState.rowsPerPage;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 function debouncedSaveState() {
     if (saveStateTimeout) {
         clearTimeout(saveStateTimeout);
@@ -64,31 +125,6 @@ function debouncedSaveState() {
     }, 300); // 300ms debounce
 }
 
-async function loadState() {
-    if (!db) return;
-    const savedState = await db.get('state', 'appState');
-    if (savedState) {
-        // Only restore state if we have a zipInstance to work with
-        if (!zipInstance) {
-            return false;
-        }
-        
-        // Rebuild imageFiles with zipEntry references
-        imageFiles = savedState.imageFiles.map(file => {
-            const zipEntry = zipInstance.file(file.name);
-            return zipEntry ? { name: file.name, zipEntry } : null;
-        }).filter(Boolean);
-        
-        currentIndex = savedState.currentIndex;
-        results = savedState.results;
-        if (savedState.rowsPerPage) {
-            rowsPerPage = savedState.rowsPerPage;
-            rowsPerPageSelect.value = savedState.rowsPerPage;
-        }
-        return imageFiles.length > 0;
-    }
-    return false;
-}
 
 async function clearCurrentData() {
     console.log('Clearing current data...');
@@ -115,6 +151,8 @@ async function clearCurrentData() {
     
     if (db) {
         await db.clear('state');
+        // Also clear all images
+        await db.delete('state', 'allImages');
     }
     
     console.log('Data cleared successfully');
@@ -178,8 +216,25 @@ async function init() {
     });
 
     db = await openDB();
-    // Note: We can't restore state without a ZIP file, so just show upload section
-    uploadSection.classList.remove('d-none');
+    
+    // Try to restore state from IndexedDB
+    const stateRestored = await loadState();
+    if (stateRestored) {
+        uploadSection.classList.add('d-none');
+        uploadNewBtn.classList.remove('d-none');
+        topDownloadBtn.classList.remove('d-none');
+        topDownloadBtn.disabled = results.length === 0;
+
+        if (currentIndex < imageFiles.length) {
+            viewerSection.classList.remove('d-none');
+            displayCurrentImage();
+        } else {
+            resultsSection.classList.remove('d-none');
+            showCompletionScreen();
+        }
+    } else {
+        uploadSection.classList.remove('d-none');
+    }
 }
 
 async function handleFileSelect(event) {
@@ -242,6 +297,9 @@ async function handleFileSelect(event) {
                 uploadNewBtn.classList.remove('d-none');
                 topDownloadBtn.disabled = true;
                 
+                // Save all images to IndexedDB
+                await saveAllImagesToDB();
+                
                 // Try to restore previous state for this ZIP file
                 const stateRestored = await loadState();
                 await saveState();
@@ -286,14 +344,19 @@ async function displayCurrentImage() {
         const imageFile = imageFiles[currentIndex];
         const starId = extractStarId(imageFile.name);
         
-        // Lazy load the current image blob
         statusText.textContent = `Завантаження зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
         
         try {
-            const blob = await imageFile.zipEntry.async('blob');
-            currentImageUrl = URL.createObjectURL(blob);
-            displayImage.src = currentImageUrl;
-            statusText.textContent = `Зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
+            // Get image from IndexedDB
+            const blob = await getImageFromDB(imageFile.name);
+            
+            if (blob) {
+                currentImageUrl = URL.createObjectURL(blob);
+                displayImage.src = currentImageUrl;
+                statusText.textContent = `Зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
+            } else {
+                throw new Error('Image not found in database');
+            }
         } catch (error) {
             console.error('Error loading image:', error);
             statusText.textContent = `Помилка завантаження зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
@@ -321,22 +384,12 @@ async function classify(classification) {
 
     const filename = imageFiles[currentIndex].name;
     const starId = extractStarId(filename);
-    
-    // Create a new blob URL for results table (don't reuse current one)
-    let resultImageUrl = null;
-    try {
-        const blob = await imageFiles[currentIndex].zipEntry.async('blob');
-        resultImageUrl = URL.createObjectURL(blob);
-    } catch (error) {
-        console.error('Error creating result image URL:', error);
-        resultImageUrl = displayImage.src; // fallback to current URL
-    }
 
     results.push({
         starId: starId,
         filename: filename,
         classification: classification,
-        imageUrl: resultImageUrl
+        imageUrl: null // Don't store URL, we'll generate it when needed
     });
 
     currentIndex++;
@@ -347,10 +400,7 @@ async function classify(classification) {
 
 async function goBack() {
     if (currentIndex > 0) {
-        const lastResult = results.pop();
-        if (lastResult && lastResult.imageUrl) {
-            URL.revokeObjectURL(lastResult.imageUrl);
-        }
+        results.pop();
         currentIndex--;
         topDownloadBtn.disabled = results.length === 0;
         await saveState();
@@ -377,16 +427,12 @@ function renderResultsTable() {
     if (currentRows !== neededRows) {
         resultsTableBody.innerHTML = '';
         
-        // Create document fragment for efficient DOM updates
-        const fragment = document.createDocumentFragment();
-        
-        paginatedResults.forEach((result, index) => {
+        // Create rows asynchronously and add them to the table
+        paginatedResults.forEach(async (result, index) => {
             const resultIndex = start + index;
-            const row = createResultRow(result, resultIndex);
-            fragment.appendChild(row);
+            const row = await createResultRow(result, resultIndex);
+            resultsTableBody.appendChild(row);
         });
-        
-        resultsTableBody.appendChild(fragment);
     } else {
         // Update existing rows instead of recreating
         Array.from(resultsTableBody.children).forEach((row, index) => {
@@ -397,7 +443,7 @@ function renderResultsTable() {
     }
 }
 
-function createResultRow(result, resultIndex) {
+async function createResultRow(result, resultIndex) {
     const row = document.createElement('tr');
     
     const classificationOptions = ['Так', 'Ні', 'Проблематично визначити'];
@@ -434,7 +480,16 @@ function createResultRow(result, resultIndex) {
     classificationCell.appendChild(select);
 
     const previewCell = document.createElement('td');
-    previewCell.innerHTML = `<img src="${result.imageUrl}" class="preview-image img-thumbnail" alt="${result.filename}">`;
+    // Create image element and load from IndexedDB
+    const img = document.createElement('img');
+    img.className = 'preview-image img-thumbnail';
+    img.alt = result.filename;
+    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2RkZCIvPgo8dGV4dCB4PSI1MCUiIHk9IjUwJSIgZHk9Ii4zZW0iIGZpbGw9IiM5OTkiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Завантаження...</dGV4dD4KPHN2Zz4='; // placeholder SVG
+    
+    // Load actual image from IndexedDB
+    loadImageForPreview(img, result.filename);
+    
+    previewCell.appendChild(img);
 
     const filenameCell = document.createElement('td');
     filenameCell.innerText = result.starId;
@@ -446,14 +501,33 @@ function createResultRow(result, resultIndex) {
     return row;
 }
 
+async function loadImageForPreview(imgElement, filename) {
+    try {
+        const blob = await getImageFromDB(filename);
+        if (blob) {
+            const url = URL.createObjectURL(blob);
+            imgElement.src = url;
+            // Clean up URL when image is removed from DOM (optional optimization)
+            imgElement.addEventListener('load', () => {
+                // Store URL for later cleanup if needed
+                imgElement.dataset.objectUrl = url;
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load preview image:', error);
+        imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2Y4ZDdkYSIvPgo8dGV4dCB4PSI1MCUiIHk9IjUwJSIgZHk9Ii4zZW0iIGZpbGw9IiM3MjE5MjEiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Помилка</dGV4dD4KPHN2Zz4='; // error SVG
+    }
+}
+
 function updateResultRow(row, result, resultIndex) {
     const cells = row.children;
     
     // Update preview image
     const img = cells[0].querySelector('img');
-    if (img.src !== result.imageUrl) {
-        img.src = result.imageUrl;
+    if (img.alt !== result.filename) {
         img.alt = result.filename;
+        // Load new image from IndexedDB
+        loadImageForPreview(img, result.filename);
     }
     
     // Update classification
