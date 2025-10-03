@@ -95,6 +95,60 @@ body {
     color: #664d03;
 }
 
+/* Landing page steps styling */
+.landing-steps {
+    max-width: 600px;
+    margin: 0 auto;
+    text-align: left;
+}
+
+.step-item {
+    display: flex;
+    align-items: flex-start;
+    padding: 1rem;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 10px;
+    border-left: 4px solid #0d6efd;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.step-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.step-number {
+    background: linear-gradient(135deg, #0d6efd 0%, #0056b3 100%);
+    color: white;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    margin-right: 15px;
+    box-shadow: 0 2px 4px rgba(13, 110, 253, 0.3);
+}
+
+.step-content {
+    flex: 1;
+    line-height: 1.4;
+}
+
+.step-content strong {
+    color: #212529;
+}
+
+.tutorial-section {
+    border-top: 2px solid #e9ecef;
+    padding-top: 2rem;
+    margin-top: 2rem;
+}
+
 /* Mobile responsive improvements */
 @media (max-width: 576px) {
     .container {
@@ -150,5 +204,22 @@ body {
     .pagination .page-link {
         padding: 0.25rem 0.5rem;
         font-size: 0.8rem;
+    }
+    
+    .step-item {
+        padding: 0.8rem;
+        margin-bottom: 0.8rem;
+    }
+    
+    .step-number {
+        width: 25px;
+        height: 25px;
+        font-size: 0.8rem;
+        margin-right: 10px;
+    }
+    
+    .landing-steps {
+        max-width: 100%;
+        padding: 0 5px;
     }
 }
