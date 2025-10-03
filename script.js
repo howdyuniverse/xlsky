@@ -91,6 +91,8 @@ async function loadState() {
 }
 
 async function clearCurrentData() {
+    console.log('Clearing current data...');
+    
     // Clean up current image URL
     if (currentImageUrl) {
         URL.revokeObjectURL(currentImageUrl);
@@ -109,9 +111,13 @@ async function clearCurrentData() {
     results = [];
     currentPage = 1;
     rowsPerPage = 10;
+    zipInstance = null; // Clear ZIP instance
+    
     if (db) {
         await db.clear('state');
     }
+    
+    console.log('Data cleared successfully');
 }
 
 function uploadNewFileHandler() {
@@ -133,7 +139,10 @@ function cleanupOnUnload() {
 // --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', init);
 zipInput.addEventListener('change', handleFileSelect);
-uploadLabel.addEventListener('click', () => zipInput.click());
+uploadLabel.addEventListener('click', () => {
+    zipInput.value = ''; // Clear the input to ensure change event fires
+    zipInput.click();
+});
 document.addEventListener('keydown', handleKeyPress);
 yesBtn.addEventListener('click', () => classify('Так'));
 problematicBtn.addEventListener('click', () => classify('Проблематично визначити'));
@@ -161,6 +170,9 @@ async function init() {
         uploadNewBtn.classList.add('d-none');
         topDownloadBtn.disabled = true;
         uploadSection.classList.remove('d-none');
+        
+        // Clear the file input to allow selecting the same file again
+        zipInput.value = '';
 
         confirmationModal.hide();
     });
@@ -171,8 +183,13 @@ async function init() {
 }
 
 async function handleFileSelect(event) {
+    console.log('File select event triggered');
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+        console.log('No file selected');
+        return;
+    }
+    console.log('Selected file:', file.name, file.size, 'bytes');
 
     await clearCurrentData();
 
