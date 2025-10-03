@@ -418,6 +418,13 @@ function createResultRow(result, resultIndex) {
     select.addEventListener('change', (event) => {
         const newClassification = event.target.value;
         const indexToUpdate = event.target.dataset.resultIndex;
+        
+        // Immediately update the cell background color
+        const cell = event.target.closest('td');
+        const classificationClass = getClassificationClass(newClassification);
+        cell.className = '';
+        cell.classList.add(classificationClass);
+        
         updateClassification(indexToUpdate, newClassification);
     });
 
@@ -454,12 +461,12 @@ function updateResultRow(row, result, resultIndex) {
     if (select.value !== result.classification) {
         select.value = result.classification;
         select.dataset.resultIndex = resultIndex;
-        
-        // Update classification class
-        const classificationClass = getClassificationClass(result.classification);
-        cells[1].className = '';
-        cells[1].classList.add(classificationClass);
     }
+    
+    // Always update classification class to ensure it's correct
+    const classificationClass = getClassificationClass(result.classification);
+    cells[1].className = '';
+    cells[1].classList.add(classificationClass);
     
     // Update star ID
     if (cells[2].innerText !== result.starId) {
