@@ -156,9 +156,26 @@ body {
         padding-right: 10px;
     }
     
+    /* Keep top buttons horizontal on mobile */
+    .mb-2 {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+    }
+    
+    .mb-2 .btn {
+        flex: 1;
+        min-width: 120px;
+        max-width: 200px;
+        font-size: 0.85rem;
+        padding: 0.4rem 0.6rem;
+    }
+    
     .classification-buttons {
         flex-direction: column;
         gap: 10px !important;
+        align-items: center;
     }
     
     .classification-buttons .btn {
