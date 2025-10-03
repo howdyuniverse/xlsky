@@ -168,7 +168,7 @@ async function init() {
         resultsSection.classList.add('d-none');
         viewerSection.classList.add('d-none');
         uploadNewBtn.classList.add('d-none');
-        topDownloadBtn.disabled = true;
+        topDownloadBtn.classList.add('d-none');
         uploadSection.classList.remove('d-none');
         
         // Clear the file input to allow selecting the same file again
@@ -249,15 +249,19 @@ async function handleFileSelect(event) {
                 if (stateRestored && currentIndex < imageFiles.length) {
                     // Continue from where user left off
                     viewerSection.classList.remove('d-none');
+                    topDownloadBtn.classList.remove('d-none');
                     topDownloadBtn.disabled = results.length === 0;
                     displayCurrentImage();
                 } else if (stateRestored && currentIndex >= imageFiles.length) {
                     // User had completed classification
+                    topDownloadBtn.classList.remove('d-none');
                     topDownloadBtn.disabled = results.length === 0;
                     showCompletionScreen();
                 } else {
                     // Start fresh
                     viewerSection.classList.remove('d-none');
+                    topDownloadBtn.classList.remove('d-none');
+                    topDownloadBtn.disabled = true;
                     await new Promise(resolve => setTimeout(resolve, 500));
                     displayCurrentImage();
                 }
