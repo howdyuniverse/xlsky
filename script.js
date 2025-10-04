@@ -2,6 +2,7 @@ const dbName = 'ImageClassifierDB';
 const dbVersion = 1;
 let db;
 let confirmationModal;
+let copySuccessModal;
 
 // State Management
 let imageFiles = []; // Now stores zip entries instead of blobs
@@ -27,12 +28,14 @@ const problematicBtn = document.getElementById('problematic-btn');
 const noBtn = document.getElementById('no-btn');
 const backBtn = document.getElementById('back-btn');
 const uploadNewBtn = document.querySelector('.upload-new-btn');
+const topCopyBtn = document.getElementById('top-copy-btn');
 const topDownloadBtn = document.getElementById('top-download-btn');
 const resultsTableBody = document.querySelector('#results-table tbody');
 const paginationControls = document.getElementById('pagination-controls');
 const rowsPerPageSelect = document.getElementById('rows-per-page-select');
 const confirmationModalEl = document.getElementById('confirmationModal');
 const confirmUploadBtn = document.getElementById('confirmUploadBtn');
+const copySuccessModalEl = document.getElementById('copySuccessModal');
 
 // Image Modal Elements
 const imageModal = document.getElementById('imageModal');
@@ -193,6 +196,7 @@ problematicBtn.addEventListener('click', () => classify('Проблематич�
 noBtn.addEventListener('click', () => classify('Ні'));
 backBtn.addEventListener('click', goBack);
 uploadNewBtn.addEventListener('click', uploadNewFileHandler);
+topCopyBtn.addEventListener('click', copyResultsToClipboard);
 topDownloadBtn.addEventListener('click', downloadResults);
 window.addEventListener('beforeunload', cleanupOnUnload);
 
@@ -231,12 +235,14 @@ rowsPerPageSelect.addEventListener('change', () => {
 
 async function init() {
     confirmationModal = new bootstrap.Modal(confirmationModalEl);
+    copySuccessModal = new bootstrap.Modal(copySuccessModalEl);
     confirmUploadBtn.addEventListener('click', async () => {
         await clearCurrentData();
         
         resultsSection.classList.add('d-none');
         viewerSection.classList.add('d-none');
         uploadNewBtn.classList.add('d-none');
+        topCopyBtn.classList.add('d-none');
         topDownloadBtn.classList.add('d-none');
         uploadSection.classList.remove('d-none');
         
@@ -253,6 +259,8 @@ async function init() {
     if (stateRestored) {
         uploadSection.classList.add('d-none');
         uploadNewBtn.classList.remove('d-none');
+        topCopyBtn.classList.remove('d-none');
+        topCopyBtn.disabled = results.length === 0;
         topDownloadBtn.classList.remove('d-none');
         topDownloadBtn.disabled = results.length === 0;
 
@@ -326,29 +334,36 @@ async function handleFileSelect(event) {
                 statusText.textContent = `Готово! Знайдено ${imageFiles.length} зображень для класифікації.`;
                 uploadSection.classList.add('d-none');
                 uploadNewBtn.classList.remove('d-none');
+                topCopyBtn.disabled = true;
                 topDownloadBtn.disabled = true;
-                
+
                 // Save all images to IndexedDB
                 await saveAllImagesToDB();
-                
+
                 // Try to restore previous state for this ZIP file
                 const stateRestored = await loadState();
                 await saveState();
-                
+
                 if (stateRestored && currentIndex < imageFiles.length) {
                     // Continue from where user left off
                     viewerSection.classList.remove('d-none');
+                    topCopyBtn.classList.remove('d-none');
+                    topCopyBtn.disabled = results.length === 0;
                     topDownloadBtn.classList.remove('d-none');
                     topDownloadBtn.disabled = results.length === 0;
                     displayCurrentImage();
                 } else if (stateRestored && currentIndex >= imageFiles.length) {
                     // User had completed classification
+                    topCopyBtn.classList.remove('d-none');
+                    topCopyBtn.disabled = results.length === 0;
                     topDownloadBtn.classList.remove('d-none');
                     topDownloadBtn.disabled = results.length === 0;
                     showCompletionScreen();
                 } else {
                     // Start fresh
                     viewerSection.classList.remove('d-none');
+                    topCopyBtn.classList.remove('d-none');
+                    topCopyBtn.disabled = true;
                     topDownloadBtn.classList.remove('d-none');
                     topDownloadBtn.disabled = true;
                     await new Promise(resolve => setTimeout(resolve, 500));
@@ -432,6 +447,7 @@ async function classify(classification) {
     });
 
     currentIndex++;
+    topCopyBtn.disabled = false;
     topDownloadBtn.disabled = false;
     await saveState();
     displayCurrentImage();
@@ -441,6 +457,7 @@ async function goBack() {
     if (currentIndex > 0) {
         results.pop();
         currentIndex--;
+        topCopyBtn.disabled = results.length === 0;
         topDownloadBtn.disabled = results.length === 0;
         await saveState();
         displayCurrentImage();
@@ -647,8 +664,29 @@ function createPaginationItem(pageNum) {
     return li;
 }
 
+async function copyResultsToClipboard() {
+    const filteredResults = results.filter(row =>
+        row.classification === 'Так' || row.classification === 'Проблематично визначити'
+    );
+
+    // Create TSV format (Tab-Separated Values) for Excel
+    const headers = "Номер TIC\tВідкривач\tЧи зоря змінна ?";
+    const rows = filteredResults.map(row =>
+        `${row.starId}\t\t${row.classification}`
+    );
+    const tsvData = [headers, ...rows].join('\n');
+
+    try {
+        await navigator.clipboard.writeText(tsvData);
+        copySuccessModal.show();
+    } catch (error) {
+        console.error('Failed to copy to clipboard:', error);
+        alert('Помилка копіювання в буфер обміну. Спробуйте ще раз.');
+    }
+}
+
 function downloadResults() {
-    const filteredResults = results.filter(row => 
+    const filteredResults = results.filter(row =>
         row.classification === 'Так' || row.classification === 'Проблематично визначити'
     );
 
