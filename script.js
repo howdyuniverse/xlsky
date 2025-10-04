@@ -44,6 +44,9 @@ const closeModal = document.querySelector('.close-modal');
 
 
 // --- IndexedDB Functions ---
+// Cache for allImages to avoid repeated DB reads
+let allImagesCache = null;
+
 async function openDB() {
     return idb.openDB(dbName, dbVersion, {
         upgrade(db) {
@@ -66,11 +69,11 @@ async function saveState() {
 
 async function saveAllImagesToDB() {
     if (!db || !zipInstance) return;
-    
+
     try {
         console.log(`Saving all ${imageFiles.length} images to IndexedDB...`);
         const savedImages = {};
-        
+
         for (let i = 0; i < imageFiles.length; i++) {
             const imageFile = imageFiles[i];
             if (imageFile.zipEntry) {
@@ -79,14 +82,16 @@ async function saveAllImagesToDB() {
                 savedImages[imageFile.name] = blob;
             }
         }
-        
+
         await db.put('state', savedImages, 'allImages');
+        // Cache the images in memory after saving
+        allImagesCache = savedImages;
         console.log(`Successfully saved ${imageFiles.length} images to IndexedDB`);
-        
+
         // Update imageFiles to remove zipEntry dependency
         imageFiles = imageFiles.map(file => ({ name: file.name }));
         zipInstance = null; // No longer needed
-        
+
     } catch (error) {
         console.error('Failed to save images to IndexedDB:', error);
         statusText.textContent = 'Помилка збереження зображень. Спробуйте ще раз.';
@@ -95,10 +100,20 @@ async function saveAllImagesToDB() {
 
 async function getImageFromDB(fileName) {
     if (!db) return null;
-    
+
     try {
+        // Use cache if available
+        if (allImagesCache) {
+            return allImagesCache[fileName] || null;
+        }
+
+        // Load from DB only once and cache it
         const allImages = await db.get('state', 'allImages');
-        return allImages && allImages[fileName] ? allImages[fileName] : null;
+        if (allImages) {
+            allImagesCache = allImages;
+            return allImages[fileName] || null;
+        }
+        return null;
     } catch (error) {
         console.warn('Failed to get image from DB:', error);
         return null;
@@ -112,6 +127,8 @@ async function loadState() {
         // Check if we have images in DB
         const allImages = await db.get('state', 'allImages');
         if (allImages) {
+            // Cache images immediately
+            allImagesCache = allImages;
             imageFiles = savedState.imageFiles;
             currentIndex = savedState.currentIndex;
             results = savedState.results;
@@ -137,33 +154,34 @@ function debouncedSaveState() {
 
 async function clearCurrentData() {
     console.log('Clearing current data...');
-    
+
     // Clean up current image URL
     if (currentImageUrl) {
         URL.revokeObjectURL(currentImageUrl);
         currentImageUrl = null;
     }
-    
+
     // Clean up result image URLs
     results.forEach(result => {
         if (result.imageUrl) {
             URL.revokeObjectURL(result.imageUrl);
         }
     });
-    
+
     imageFiles = [];
     currentIndex = 0;
     results = [];
     currentPage = 1;
     rowsPerPage = 10;
     zipInstance = null; // Clear ZIP instance
-    
+    allImagesCache = null; // Clear cache
+
     if (db) {
         await db.clear('state');
         // Also clear all images
         await db.delete('state', 'allImages');
     }
-    
+
     console.log('Data cleared successfully');
 }
 
