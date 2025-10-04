@@ -25,6 +25,7 @@
             <div class="mb-2">
                 <button class="btn btn-warning upload-new-btn d-none">Завантажити новий файл</button>
                 <button id="top-download-btn" class="btn btn-info d-none">Скачати результати в XLS</button>
+                <button id="top-copy-btn" class="btn btn-success d-none">Копіювати результати в буфер обміну</button>
             </div>
 
             <section id="upload-section">
@@ -59,7 +60,7 @@
                     <div class="step-item mb-3">
                         <div class="step-number">4</div>
                         <div class="step-content">
-                            <strong>Скачай XLS Excel файл</strong> з твоїми результатами
+                            <strong>Скопіюй результати</strong> в буфер обміну або скачай XLS файл
                         </div>
                     </div>
                     
@@ -143,6 +144,40 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
             <button type="button" class="btn btn-primary" id="confirmUploadBtn">Підтвердити</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Copy Success Modal -->
+    <div class="modal fade" id="copySuccessModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title">✓ Результати скопійовано!</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3">Колонки з вашими даними скопійовано в буфер обміну:</p>
+            <ul class="mb-3">
+              <li><strong>"Номер TIC"</strong> — номери ваших зірок</li>
+              <li><strong>"Відкривач"</strong> — <span class="text-danger">вам треба буде додати ваше ім'я</span></li>
+              <li><strong>"Чи зоря змінна?"</strong> — ваші дані класифікації</li>
+            </ul>
+            <p class="mb-2">Тепер ви можете вставити результати в Google табличку:</p>
+            <ol class="mb-3">
+              <li>Виділіть комірку <strong>A1</strong> як показано на скріншоті нижче</li>
+              <li>Вставте дані (<kbd>Ctrl+V</kbd> або <kbd>Cmd+V</kbd>)</li>
+            </ol>
+            <div class="text-center mb-3">
+              <img src="how_to_paste_results.png" alt="Як вставити результати" class="img-fluid border rounded" style="max-height: 200px; width: auto;">
+            </div>
+            <div class="alert alert-warning mb-0" role="alert">
+              <strong>⚠️ Увага!</strong> Якщо в Google таблиці вже є попередні дані, спочатку видаліть їх, щоб вони не перемішалися з новими результатами.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Зрозуміло</button>
           </div>
         </div>
       </div>
