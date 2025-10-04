@@ -34,6 +34,12 @@ const rowsPerPageSelect = document.getElementById('rows-per-page-select');
 const confirmationModalEl = document.getElementById('confirmationModal');
 const confirmUploadBtn = document.getElementById('confirmUploadBtn');
 
+// Image Modal Elements
+const imageModal = document.getElementById('imageModal');
+const modalImage = document.getElementById('modalImage');
+const closeModal = document.querySelector('.close-modal');
+
+
 // --- IndexedDB Functions ---
 async function openDB() {
     return idb.openDB(dbName, dbVersion, {
@@ -189,6 +195,31 @@ backBtn.addEventListener('click', goBack);
 uploadNewBtn.addEventListener('click', uploadNewFileHandler);
 topDownloadBtn.addEventListener('click', downloadResults);
 window.addEventListener('beforeunload', cleanupOnUnload);
+
+resultsTableBody.addEventListener('click', (event) => {
+    if (event.target.classList.contains('preview-image')) {
+        imageModal.style.display = 'flex';
+        modalImage.src = event.target.src;
+    }
+});
+
+// Image Modal Listeners
+displayImage.addEventListener('click', () => {
+    if (displayImage.src) {
+        imageModal.style.display = 'flex';
+        modalImage.src = displayImage.src;
+    }
+});
+
+closeModal.addEventListener('click', () => {
+    imageModal.style.display = 'none';
+});
+
+imageModal.addEventListener('click', (e) => {
+    if (e.target === imageModal) {
+        imageModal.style.display = 'none';
+    }
+});
 
 rowsPerPageSelect.addEventListener('change', () => {
     rowsPerPage = parseInt(rowsPerPageSelect.value, 10);
@@ -368,6 +399,14 @@ async function displayCurrentImage() {
 }
 
 function handleKeyPress(event) {
+    // If modal is open, only allow Escape key to close it
+    if (imageModal.style.display === 'flex') {
+        if (event.key === 'Escape') {
+            imageModal.style.display = 'none';
+        }
+        return; // Ignore other keys when modal is open
+    }
+
     if (currentIndex >= imageFiles.length) return;
 
     if (event.key === 'ArrowRight') {
