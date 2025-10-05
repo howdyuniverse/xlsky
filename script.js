@@ -566,7 +566,12 @@ async function createResultRow(result, resultIndex) {
     previewCell.appendChild(img);
 
     const filenameCell = document.createElement('td');
-    filenameCell.innerText = result.starId;
+    const link = document.createElement('a');
+    link.href = `https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=TIC+${result.starId}&submit=SIMBAD+search`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.innerText = result.starId;
+    filenameCell.appendChild(link);
 
     row.appendChild(previewCell);
     row.appendChild(classificationCell);
@@ -616,9 +621,22 @@ function updateResultRow(row, result, resultIndex) {
     cells[1].className = '';
     cells[1].classList.add(classificationClass);
     
-    // Update star ID
-    if (cells[2].innerText !== result.starId) {
-        cells[2].innerText = result.starId;
+    // Update star ID and link
+    const link = cells[2].querySelector('a');
+    if (link) {
+        if (link.innerText !== result.starId) {
+            link.innerText = result.starId;
+            link.href = `https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=TIC+${result.starId}&submit=SIMBAD+search`;
+        }
+    } else {
+        // Create link if it doesn't exist
+        cells[2].innerHTML = '';
+        const newLink = document.createElement('a');
+        newLink.href = `https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=TIC+${result.starId}&submit=SIMBAD+search`;
+        newLink.target = '_blank';
+        newLink.rel = 'noopener noreferrer';
+        newLink.innerText = result.starId;
+        cells[2].appendChild(newLink);
     }
 }
 
