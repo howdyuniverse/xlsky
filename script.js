@@ -1,16 +1,16 @@
 const dbName = 'ImageClassifierDB';
-const dbVersion = 1;
+const dbVersion = 2;
 let db;
 let confirmationModal;
 let copySuccessModal;
 
 // State Management
-let imageFiles = []; // Now stores zip entries instead of blobs
-let currentIndex = 0;
-let results = [];
+let classificationImages = []; // Array of fileNames for classification
+let currentClassificatonImageIndex = 0;
+let totalStarsCount = 0; // Total number of stars in database for pagination
 let currentPage = 1;
 let rowsPerPage = 10;
-let currentImageUrl = null;
+let currentClassificationImageUrl = null;
 let zipInstance = null;
 let saveStateTimeout = null;
 
@@ -44,53 +44,147 @@ const closeModal = document.querySelector('.close-modal');
 
 
 // --- IndexedDB Functions ---
-// Cache for allImages to avoid repeated DB reads
-let allImagesCache = null;
 
 async function openDB() {
     return idb.openDB(dbName, dbVersion, {
-        upgrade(db) {
-            db.createObjectStore('state');
+        upgrade(db, oldVersion, newVersion, transaction) {
+            console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
+
+            // V1 schema - keep old object store for rollback
+            if (oldVersion < 1) {
+                db.createObjectStore('state');
+            }
+
+            // V2 schema - optimized structure
+            if (oldVersion < 2) {
+                // Create images store with fileName as primary key
+                if (!db.objectStoreNames.contains('images')) {
+                    db.createObjectStore('images', { keyPath: 'fileName' });
+                }
+
+                // Create stars store with fileName as primary key
+                if (!db.objectStoreNames.contains('stars')) {
+                    db.createObjectStore('stars', { keyPath: 'fileName' });
+                }
+
+                // Create appState store for pagination and current state
+                if (!db.objectStoreNames.contains('appState')) {
+                    db.createObjectStore('appState');
+                }
+
+                // Migrate data from V1 to V2 (keeping V1 data intact)
+                const v1_stateStore = transaction.objectStore('state');
+                const newImagesStore = transaction.objectStore('images');
+                const newStarsStore = transaction.objectStore('stars');
+                const newAppStateStore = transaction.objectStore('appState');
+
+                const migrationDate = Date.now();
+
+                // Migrate images
+                const v1_allImagesRequest = v1_stateStore.get('allImages');
+                v1_allImagesRequest.onsuccess = () => {
+                    const v1_allImages = v1_allImagesRequest.result;
+                    if (v1_allImages) {
+                        console.log('Migrating images to v2 schema...');
+                        Object.entries(v1_allImages).forEach(([fileName, blob]) => {
+                            newImagesStore.put({
+                                fileName,
+                                image: blob,
+                                importDate: migrationDate
+                            });
+                        });
+                    }
+                };
+
+                // Migrate app state
+                const v1_appStateRequest = v1_stateStore.get('appState');
+                v1_appStateRequest.onsuccess = () => {
+                    const v1_appState = v1_appStateRequest.result;
+                    if (v1_appState) {
+                        console.log('Migrating app state to v2 schema...');
+
+                        // Migrate pagination
+                        newAppStateStore.put({ rowsPerPage: v1_appState.rowsPerPage || 10 }, 'pagination');
+
+                        // Migrate classification results
+                        if (v1_appState.results && Array.isArray(v1_appState.results)) {
+                            v1_appState.results.forEach(v1_result => {
+                                newStarsStore.put({
+                                    fileName: v1_result.filename,
+                                    ticId: v1_result.starId,
+                                    classification: v1_result.classification
+                                });
+                            });
+                        }
+
+                        // Migrate current position
+                        const currentFileName = v1_appState.imageFiles && v1_appState.currentIndex < v1_appState.imageFiles.length
+                            ? v1_appState.imageFiles[v1_appState.currentIndex]?.name
+                            : null;
+                        newAppStateStore.put({ currentFileName }, 'classification');
+                    }
+                };
+
+                console.log('Migration to v2 complete. V1 data preserved in "state" store for rollback.');
+            }
         },
     });
 }
 
 async function saveState() {
     if (!db) return;
-    // Don't save imageFiles with zipEntry objects - they can't be serialized
-    const serializableImageFiles = imageFiles.map(file => ({ name: file.name }));
-    await db.put('state', { 
-        imageFiles: serializableImageFiles, 
-        currentIndex, 
-        results, 
-        rowsPerPage 
-    }, 'appState');
+
+    const tx = db.transaction('appState', 'readwrite');
+    const appState = tx.objectStore('appState');
+
+    // Save pagination settings
+    await appState.put({ rowsPerPage }, 'pagination');
+
+    // Save current classification state
+    const classificationCurrentFileName = currentClassificatonImageIndex < classificationImages.length ? classificationImages[currentClassificatonImageIndex] : null;
+    await appState.put({ classificationCurrentFileName }, 'classification');
+
+    await tx.done;
 }
 
-async function saveAllImagesToDB() {
+async function saveAllImagesToDB(zipImageEntries) {
     if (!db || !zipInstance) return;
 
     try {
-        console.log(`Saving all ${imageFiles.length} images to IndexedDB...`);
-        const savedImages = {};
+        console.log(`Saving all ${zipImageEntries.length} images to IndexedDB...`);
 
-        for (let i = 0; i < imageFiles.length; i++) {
-            const imageFile = imageFiles[i];
-            if (imageFile.zipEntry) {
-                statusText.textContent = `Збереження зображень: ${i + 1} з ${imageFiles.length}`;
-                const blob = await imageFile.zipEntry.async('blob');
-                savedImages[imageFile.name] = blob;
+        const tx = db.transaction(['images', 'stars'], 'readwrite');
+        const imagesStore = tx.objectStore('images');
+        const starsStore = tx.objectStore('stars');
+        const importDate = Date.now();
+
+        for (let i = 0; i < zipImageEntries.length; i++) {
+            const imageEntry = zipImageEntries[i];
+            if (imageEntry.zipEntry) {
+                statusText.textContent = `Збереження зображень: ${i + 1} з ${zipImageEntries.length}`;
+                const blob = await imageEntry.zipEntry.async('blob');
+
+                // Save image blob
+                await imagesStore.put({
+                    fileName: imageEntry.name,
+                    image: blob,
+                    importDate
+                });
+
+                // Create star record with null classification
+                const starId = extractStarId(imageEntry.name);
+                await starsStore.put({
+                    fileName: imageEntry.name,
+                    ticId: starId,
+                    classification: null
+                });
             }
         }
 
-        await db.put('state', savedImages, 'allImages');
-        // Cache the images in memory after saving
-        allImagesCache = savedImages;
-        console.log(`Successfully saved ${imageFiles.length} images to IndexedDB`);
+        await tx.done;
+        console.log(`Successfully saved ${zipImageEntries.length} images to IndexedDB`);
 
-        // Update imageFiles to remove zipEntry dependency
-        imageFiles = imageFiles.map(file => ({ name: file.name }));
-        zipInstance = null; // No longer needed
+        zipInstance = null;
 
     } catch (error) {
         console.error('Failed to save images to IndexedDB:', error);
@@ -98,22 +192,12 @@ async function saveAllImagesToDB() {
     }
 }
 
-async function getImageFromDB(fileName) {
+async function getImageBlobFromDB(fileName) {
     if (!db) return null;
 
     try {
-        // Use cache if available
-        if (allImagesCache) {
-            return allImagesCache[fileName] || null;
-        }
-
-        // Load from DB only once and cache it
-        const allImages = await db.get('state', 'allImages');
-        if (allImages) {
-            allImagesCache = allImages;
-            return allImages[fileName] || null;
-        }
-        return null;
+        const record = await db.get('images', fileName);
+        return record ? record.image : null;
     } catch (error) {
         console.warn('Failed to get image from DB:', error);
         return null;
@@ -122,23 +206,42 @@ async function getImageFromDB(fileName) {
 
 async function loadState() {
     if (!db) return false;
-    const savedState = await db.get('state', 'appState');
-    if (savedState && savedState.imageFiles && savedState.imageFiles.length > 0) {
-        // Check if we have images in DB
-        const allImages = await db.get('state', 'allImages');
-        if (allImages) {
-            // Cache images immediately
-            allImagesCache = allImages;
-            imageFiles = savedState.imageFiles;
-            currentIndex = savedState.currentIndex;
-            results = savedState.results;
-            if (savedState.rowsPerPage) {
-                rowsPerPage = savedState.rowsPerPage;
-                rowsPerPageSelect.value = savedState.rowsPerPage;
+
+    try {
+        // Load pagination settings
+        const paginationState = await db.get('appState', 'pagination');
+        if (paginationState && paginationState.rowsPerPage) {
+            rowsPerPage = paginationState.rowsPerPage;
+            rowsPerPageSelect.value = paginationState.rowsPerPage;
+        }
+
+        // Load all stars (no need to touch images store)
+        const starsTx = db.transaction('stars', 'readonly');
+        const starsStore = starsTx.objectStore('stars');
+        const allStars = await starsStore.getAll();
+
+        if (allStars && allStars.length > 0) {
+            // Build classificationImages from stars (just fileNames)
+            classificationImages = allStars.map(star => star.fileName);
+            totalStarsCount = allStars.length;
+
+            // Load current position
+            const classificationState = await db.get('appState', 'classification');
+            if (classificationState && classificationState.classificationCurrentFileName) {
+                currentClassificatonImageIndex = classificationImages.findIndex(f => f === classificationState.classificationCurrentFileName);
+                if (currentClassificatonImageIndex === -1) currentClassificatonImageIndex = 0;
+            } else {
+                // Count classified stars
+                const classifiedCount = allStars.filter(star => star.classification !== null).length;
+                currentClassificatonImageIndex = classifiedCount;
             }
+
             return true;
         }
+    } catch (error) {
+        console.error('Failed to load state:', error);
     }
+
     return false;
 }
 
@@ -156,30 +259,26 @@ async function clearCurrentData() {
     console.log('Clearing current data...');
 
     // Clean up current image URL
-    if (currentImageUrl) {
-        URL.revokeObjectURL(currentImageUrl);
-        currentImageUrl = null;
+    if (currentClassificationImageUrl) {
+        URL.revokeObjectURL(currentClassificationImageUrl);
+        currentClassificationImageUrl = null;
     }
 
-    // Clean up result image URLs
-    results.forEach(result => {
-        if (result.imageUrl) {
-            URL.revokeObjectURL(result.imageUrl);
-        }
-    });
-
-    imageFiles = [];
-    currentIndex = 0;
-    results = [];
+    classificationImages = [];
+    currentClassificatonImageIndex = 0;
+    totalStarsCount = 0;
     currentPage = 1;
     rowsPerPage = 10;
-    zipInstance = null; // Clear ZIP instance
-    allImagesCache = null; // Clear cache
+    zipInstance = null;
 
     if (db) {
+        // Clear v2 stores
+        await db.clear('images');
+        await db.clear('stars');
+        await db.clear('appState');
+
+        // Clear v1 store for clean slate
         await db.clear('state');
-        // Also clear all images
-        await db.delete('state', 'allImages');
     }
 
     console.log('Data cleared successfully');
@@ -191,14 +290,9 @@ function uploadNewFileHandler() {
 
 function cleanupOnUnload() {
     // Clean up all Object URLs before page unload
-    if (currentImageUrl) {
-        URL.revokeObjectURL(currentImageUrl);
+    if (currentClassificationImageUrl) {
+        URL.revokeObjectURL(currentClassificationImageUrl);
     }
-    results.forEach(result => {
-        if (result.imageUrl) {
-            URL.revokeObjectURL(result.imageUrl);
-        }
-    });
 }
 
 // --- Event Listeners ---
@@ -247,7 +341,7 @@ rowsPerPageSelect.addEventListener('change', () => {
     rowsPerPage = parseInt(rowsPerPageSelect.value, 10);
     currentPage = 1;
     debouncedSaveState();
-    renderResultsTable();
+    renderFinalResultsTable();
     renderPaginationControls();
 });
 
@@ -278,13 +372,11 @@ async function init() {
         uploadSection.classList.add('d-none');
         uploadNewBtn.classList.remove('d-none');
         topCopyBtn.classList.remove('d-none');
-        topCopyBtn.disabled = results.length === 0;
         topDownloadBtn.classList.remove('d-none');
-        topDownloadBtn.disabled = results.length === 0;
 
-        if (currentIndex < imageFiles.length) {
+        if (currentClassificatonImageIndex < classificationImages.length) {
             viewerSection.classList.remove('d-none');
-            displayCurrentImage();
+            displayCurrentClassificationImage();
         } else {
             resultsSection.classList.remove('d-none');
             showCompletionScreen();
@@ -342,40 +434,36 @@ async function handleFileSelect(event) {
             
             const finalZipEntries = allPngZipEntries.filter(entry => (entry.name.split('/').length - 1) === minDepth);
 
-            // Store zip entries instead of loading all blobs
-            imageFiles = finalZipEntries.map(entry => ({
+            // Store zip entries as local variable to load images from zip file
+            const zipImageEntries = finalZipEntries.map(entry => ({
                 name: entry.name,
                 zipEntry: entry
             }));
 
-            if (imageFiles.length > 0) {
-                statusText.textContent = `Готово! Знайдено ${imageFiles.length} зображень для класифікації.`;
+            if (zipImageEntries.length > 0) {
+                statusText.textContent = `Готово! Знайдено ${zipImageEntries.length} зображень для класифікації.`;
                 uploadSection.classList.add('d-none');
                 uploadNewBtn.classList.remove('d-none');
                 topCopyBtn.disabled = true;
                 topDownloadBtn.disabled = true;
 
                 // Save all images to IndexedDB
-                await saveAllImagesToDB();
+                await saveAllImagesToDB(zipImageEntries);
 
                 // Try to restore previous state for this ZIP file
                 const stateRestored = await loadState();
                 await saveState();
 
-                if (stateRestored && currentIndex < imageFiles.length) {
+                if (stateRestored && currentClassificatonImageIndex < classificationImages.length) {
                     // Continue from where user left off
                     viewerSection.classList.remove('d-none');
                     topCopyBtn.classList.remove('d-none');
-                    topCopyBtn.disabled = results.length === 0;
                     topDownloadBtn.classList.remove('d-none');
-                    topDownloadBtn.disabled = results.length === 0;
-                    displayCurrentImage();
-                } else if (stateRestored && currentIndex >= imageFiles.length) {
+                    displayCurrentClassificationImage();
+                } else if (stateRestored && currentClassificatonImageIndex >= classificationImages.length) {
                     // User had completed classification
                     topCopyBtn.classList.remove('d-none');
-                    topCopyBtn.disabled = results.length === 0;
                     topDownloadBtn.classList.remove('d-none');
-                    topDownloadBtn.disabled = results.length === 0;
                     showCompletionScreen();
                 } else {
                     // Start fresh
@@ -385,7 +473,7 @@ async function handleFileSelect(event) {
                     topDownloadBtn.classList.remove('d-none');
                     topDownloadBtn.disabled = true;
                     await new Promise(resolve => setTimeout(resolve, 500));
-                    displayCurrentImage();
+                    displayCurrentClassificationImage();
                 }
             }
         } else {
@@ -397,38 +485,51 @@ async function handleFileSelect(event) {
     }
 }
 
-async function displayCurrentImage() {
+async function displayCurrentClassificationImage() {
     // Clean up previous image URL
-    if (currentImageUrl) {
-        URL.revokeObjectURL(currentImageUrl);
-        currentImageUrl = null;
+    if (currentClassificationImageUrl) {
+        URL.revokeObjectURL(currentClassificationImageUrl);
+        currentClassificationImageUrl = null;
     }
-    
-    if (currentIndex < imageFiles.length) {
-        const imageFile = imageFiles[currentIndex];
-        const starId = extractStarId(imageFile.name);
-        
-        statusText.textContent = `Завантаження зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
-        
+
+    if (currentClassificatonImageIndex < classificationImages.length) {
+        const fileName = classificationImages[currentClassificatonImageIndex];
+
         try {
+            // Get star data from database
+            const star = await db.get('stars', fileName);
+            if (!star) {
+                const errorMsg = `Star not found in database: ${fileName}`;
+                console.error(errorMsg);
+                alert(errorMsg);
+                return;
+            }
+
+            const starId = star.ticId;
+            statusText.textContent = `Завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length} | TIC ${starId}`;
+
             // Get image from IndexedDB
-            const blob = await getImageFromDB(imageFile.name);
-            
+            const blob = await getImageBlobFromDB(fileName);
+
             if (blob) {
-                currentImageUrl = URL.createObjectURL(blob);
-                displayImage.src = currentImageUrl;
-                statusText.textContent = `Зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
+                currentClassificationImageUrl = URL.createObjectURL(blob);
+                displayImage.src = currentClassificationImageUrl;
+                statusText.textContent = `Зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length} | TIC ${starId}`;
             } else {
-                throw new Error('Image not found in database');
+                const errorMsg = `Image not found in database: ${fileName}`;
+                console.error(errorMsg);
+                alert(errorMsg);
             }
         } catch (error) {
-            console.error('Error loading image:', error);
-            statusText.textContent = `Помилка завантаження зображення ${currentIndex + 1} з ${imageFiles.length} | TIC ${starId}`;
+            const errorMsg = `Error loading image: ${error.message}`;
+            console.error(errorMsg, error);
+            alert(errorMsg);
+            statusText.textContent = `Помилка завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length}`;
         }
     } else {
         showCompletionScreen();
     }
-    backBtn.disabled = currentIndex === 0;
+    backBtn.disabled = currentClassificatonImageIndex === 0;
 }
 
 function handleKeyPress(event) {
@@ -440,7 +541,7 @@ function handleKeyPress(event) {
         return; // Ignore other keys when modal is open
     }
 
-    if (currentIndex >= imageFiles.length) return;
+    if (currentClassificatonImageIndex >= classificationImages.length) return;
 
     if (event.key === 'ArrowRight') {
         classify('Так');
@@ -452,66 +553,113 @@ function handleKeyPress(event) {
 }
 
 async function classify(classification) {
-    if (currentIndex >= imageFiles.length) return;
+    if (currentClassificatonImageIndex >= classificationImages.length) {
+        const errorMsg = 'Classification index out of bounds';
+        console.error(errorMsg);
+        alert(errorMsg);
+        return;
+    }
 
-    const filename = imageFiles[currentIndex].name;
-    const starId = extractStarId(filename);
+    const filename = classificationImages[currentClassificatonImageIndex];
 
-    results.push({
-        starId: starId,
-        filename: filename,
-        classification: classification,
-        imageUrl: null // Don't store URL, we'll generate it when needed
-    });
+    try {
+        const star = await db.get('stars', filename);
+        if (!star) {
+            const errorMsg = `Star not found in database: ${filename}`;
+            console.error(errorMsg);
+            alert(errorMsg);
+            return;
+        }
 
-    currentIndex++;
-    topCopyBtn.disabled = false;
-    topDownloadBtn.disabled = false;
+        star.classification = classification;
+        await db.put('stars', star);
+    } catch (error) {
+        const errorMsg = `Failed to save classification: ${error.message}`;
+        console.error(errorMsg, error);
+        alert(errorMsg);
+        return;
+    }
+
+    currentClassificatonImageIndex++;
     await saveState();
-    displayCurrentImage();
+    displayCurrentClassificationImage();
 }
 
 async function goBack() {
-    if (currentIndex > 0) {
-        results.pop();
-        currentIndex--;
-        topCopyBtn.disabled = results.length === 0;
-        topDownloadBtn.disabled = results.length === 0;
+    if (currentClassificatonImageIndex > 0) {
+        currentClassificatonImageIndex--;
+        const filename = classificationImages[currentClassificatonImageIndex];
+
+        // Set classification back to null in stars store
+        try {
+            const star = await db.get('stars', filename);
+            if (star) {
+                star.classification = null;
+                await db.put('stars', star);
+            }
+        } catch (error) {
+            console.error('Failed to update classification:', error);
+        }
+
         await saveState();
-        displayCurrentImage();
+        displayCurrentClassificationImage();
     }
 }
 
 function showCompletionScreen() {
     viewerSection.classList.add('d-none');
     resultsSection.classList.remove('d-none');
-    renderResultsTable();
+    renderFinalResultsTable();
     renderPaginationControls();
 }
 
-function renderResultsTable() {
-    const start = (currentPage - 1) * rowsPerPage;
-    const end = start + rowsPerPage;
-    const paginatedResults = results.slice(start, end);
-    
-    // Only clear and rebuild if the number of rows has changed
+async function renderFinalResultsTable() {
+    const offset = (currentPage - 1) * rowsPerPage;
+
+    // Use cursor.advance() to efficiently paginate through stars
+    const tx = db.transaction('stars', 'readonly');
+    const starsStore = tx.objectStore('stars');
+    const paginatedResults = [];
+
+    let cursor = await starsStore.openCursor();
+
+    // Advance to the offset position
+    if (cursor && offset > 0) {
+        cursor = await cursor.advance(offset);
+    }
+
+    // Collect rowsPerPage results
+    let count = 0;
+    while (cursor && count < rowsPerPage) {
+        const star = cursor.value;
+        paginatedResults.push({
+            starId: star.ticId,
+            filename: star.fileName,
+            classification: star.classification,
+            imageUrl: null
+        });
+        count++;
+        cursor = await cursor.continue();
+    }
+
+    // Render the results
     const currentRows = resultsTableBody.children.length;
     const neededRows = paginatedResults.length;
-    
+
     if (currentRows !== neededRows) {
         resultsTableBody.innerHTML = '';
-        
-        // Create rows asynchronously and add them to the table
-        paginatedResults.forEach(async (result, index) => {
-            const resultIndex = start + index;
+
+        for (let index = 0; index < paginatedResults.length; index++) {
+            const result = paginatedResults[index];
+            const resultIndex = offset + index;
             const row = await createResultRow(result, resultIndex);
             resultsTableBody.appendChild(row);
-        });
+        }
     } else {
-        // Update existing rows instead of recreating
+        // Update existing rows
         Array.from(resultsTableBody.children).forEach((row, index) => {
             if (index < paginatedResults.length) {
-                updateResultRow(row, paginatedResults[index], start + index);
+                updateResultRow(row, paginatedResults[index], offset + index);
             }
         });
     }
@@ -582,7 +730,7 @@ async function createResultRow(result, resultIndex) {
 
 async function loadImageForPreview(imgElement, filename) {
     try {
-        const blob = await getImageFromDB(filename);
+        const blob = await getImageBlobFromDB(filename);
         if (blob) {
             const url = URL.createObjectURL(blob);
             imgElement.src = url;
@@ -651,12 +799,31 @@ function getClassificationClass(classification) {
 
 async function updateClassification(index, newClassification) {
     results[index].classification = newClassification;
+
+    // Update only classification field in stars store
+    const result = results[index];
+    try {
+        const star = await db.get('stars', result.filename);
+        if (star) {
+            star.classification = newClassification;
+            await db.put('stars', star);
+        } else {
+            const errorMsg = `Star not found in store: ${result.filename}`;
+            console.error(errorMsg);
+            alert(errorMsg);
+        }
+    } catch (error) {
+        const errorMsg = `Failed to update classification: ${error.message}`;
+        console.error(errorMsg, error);
+        alert(errorMsg);
+    }
+
     debouncedSaveState();
-    renderResultsTable();
+    renderFinalResultsTable();
 }
 
 function renderPaginationControls() {
-    const pageCount = Math.ceil(results.length / rowsPerPage);
+    const pageCount = Math.ceil(totalStarsCount / rowsPerPage);
     const currentChildren = paginationControls.children.length;
     
     // Only rebuild if page count changed
@@ -691,7 +858,7 @@ function createPaginationItem(pageNum) {
         e.preventDefault();
         if (currentPage !== pageNum) {
             currentPage = pageNum;
-            renderResultsTable();
+            renderFinalResultsTable();
             renderPaginationControls();
         }
     });
@@ -701,18 +868,21 @@ function createPaginationItem(pageNum) {
 }
 
 async function copyResultsToClipboard() {
-    const filteredResults = results.filter(row =>
-        row.classification === 'Так' || row.classification === 'Проблематично визначити'
-    );
-
-    // Create TSV format (Tab-Separated Values) for Excel
-    const headers = "Номер TIC\tВідкривач\tЧи зоря змінна ?";
-    const rows = filteredResults.map(row =>
-        `${row.starId}\t\t${row.classification}`
-    );
-    const tsvData = [headers, ...rows].join('\n');
-
     try {
+        // Read all stars from database
+        const tx = db.transaction('stars', 'readonly');
+        const starsStore = tx.objectStore('stars');
+        const allStars = await starsStore.getAll();
+
+        // Create TSV format (Tab-Separated Values) for Excel
+        const headers = "Номер TIC\tВідкривач\tЧи зоря змінна ?";
+        const rows = allStars.map(star => {
+            // If classification is null, write empty value in column
+            const classification = star.classification || '';
+            return `${star.ticId}\t\t${classification}`;
+        });
+        const tsvData = [headers, ...rows].join('\n');
+
         await navigator.clipboard.writeText(tsvData);
         copySuccessModal.show();
     } catch (error) {
@@ -721,22 +891,28 @@ async function copyResultsToClipboard() {
     }
 }
 
-function downloadResults() {
-    const filteredResults = results.filter(row =>
-        row.classification === 'Так' || row.classification === 'Проблематично визначити'
-    );
+async function downloadResults() {
+    try {
+        // Read all stars from database
+        const tx = db.transaction('stars', 'readonly');
+        const starsStore = tx.objectStore('stars');
+        const allStars = await starsStore.getAll();
 
-    const data = filteredResults.map(row => ({
-        "Номер TIC": row.starId,
-        "Відкривач": "",
-        "Чи зоря змінна ?": row.classification
-    }));
+        const data = allStars.map(star => ({
+            "Номер TIC": star.ticId,
+            "Відкривач": "",
+            "Чи зоря змінна ?": star.classification || ''
+        }));
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Результати");
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Результати");
 
-    XLSX.writeFile(workbook, "classification_results.xls");
+        XLSX.writeFile(workbook, "classification_results.xls");
+    } catch (error) {
+        console.error('Failed to download results:', error);
+        alert('Помилка завантаження результатів. Спробуйте ще раз.');
+    }
 }
 
 function extractStarId(filename) {
