@@ -155,9 +155,11 @@ async function saveAllImagesToDB(zipImageEntries) {
             const imageEntry = zipImageEntries[i];
             if (imageEntry.zipEntry) {
                 statusText.textContent = `Завантаження зображення: ${i + 1} з ${zipImageEntries.length}`;
+                // Extract just the filename without path
+                const fileName = imageEntry.name.split('/').pop();
                 blobPromises.push(
                     imageEntry.zipEntry.async('blob').then(blob => ({
-                        fileName: imageEntry.name,
+                        fileName: fileName,
                         blob: blob
                     }))
                 );
