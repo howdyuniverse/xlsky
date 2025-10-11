@@ -46,7 +46,7 @@ const closeModal = document.querySelector('.close-modal');
 
 async function openDB() {
     return idb.openDB(dbName, dbVersion, {
-        upgrade(db, oldVersion, newVersion, transaction) {
+        async upgrade(db, oldVersion, newVersion, transaction) {
             console.log(`Upgrading database from version ${oldVersion} to ${newVersion}`);
 
             // V1 schema - keep old object store for rollback
@@ -56,72 +56,75 @@ async function openDB() {
 
             // V2 schema - optimized structure
             if (oldVersion < 2) {
-                // Create images store with fileName as primary key
-                if (!db.objectStoreNames.contains('images')) {
-                    db.createObjectStore('images', { keyPath: 'fileName' });
-                }
+                console.log('Migrating data from V1 to V2...');
 
-                // Create stars store with fileName as primary key
-                if (!db.objectStoreNames.contains('stars')) {
-                    db.createObjectStore('stars', { keyPath: 'fileName' });
-                }
+                // Create new V2 stores
+                const imagesStore = db.createObjectStore('images', { keyPath: 'fileName' });
+                const starsStore = db.createObjectStore('stars', { keyPath: 'fileName' });
+                const appStateStore = db.createObjectStore('appState');
 
-                // Create appState store for pagination and current state
-                if (!db.objectStoreNames.contains('appState')) {
-                    db.createObjectStore('appState');
-                }
-
-                // Migrate data from V1 to V2 (keeping V1 data intact)
+                // Get references to stores from the upgrade transaction
                 const v1_stateStore = transaction.objectStore('state');
-                const newImagesStore = transaction.objectStore('images');
-                const newStarsStore = transaction.objectStore('stars');
-                const newAppStateStore = transaction.objectStore('appState');
 
-                // Migrate images
-                const v1_allImagesRequest = v1_stateStore.get('allImages');
-                v1_allImagesRequest.onsuccess = () => {
-                    const v1_allImages = v1_allImagesRequest.result;
-                    if (v1_allImages) {
-                        console.log('Migrating images to v2 schema...');
-                        Object.entries(v1_allImages).forEach(([fileName, blob]) => {
-                            newImagesStore.put({
-                                fileName,
-                                image: blob
-                            });
+                // Migrate images from V1 'allImages' key
+                const v1_allImages = await v1_stateStore.get('allImages');
+                if (v1_allImages) {
+                    console.log('Migrating images...');
+                    const entries = Object.entries(v1_allImages);
+                    console.log(`Found ${entries.length} images to migrate`);
+
+                    for (const [fileName, blob] of entries) {
+                        const fileNameOnly = fileName.split('/').pop();
+
+                        // Add to images store
+                        imagesStore.put({
+                            fileName: fileNameOnly,
+                            image: blob
+                        });
+
+                        // Create star record with ticId
+                        const match = fileNameOnly.match(/TIC_(\d+)_/);
+                        const ticId = match ? match[1] : 'N/A';
+                        starsStore.put({
+                            fileName: fileNameOnly,
+                            ticId: ticId,
+                            classification: null
                         });
                     }
-                };
+                    console.log('Images and initial stars migrated.');
+                }
 
-                // Migrate app state
-                const v1_appStateRequest = v1_stateStore.get('appState');
-                v1_appStateRequest.onsuccess = () => {
-                    const v1_appState = v1_appStateRequest.result;
-                    if (v1_appState) {
-                        console.log('Migrating app state to v2 schema...');
+                // Migrate app state from V1 'appState' key
+                const v1_appState = await v1_stateStore.get('appState');
+                if (v1_appState) {
+                    console.log('Migrating app state...');
 
-                        // Migrate pagination
-                        newAppStateStore.put({ rowsPerPage: v1_appState.rowsPerPage || 10 }, 'pagination');
+                    // Migrate pagination
+                    appStateStore.put({ rowsPerPage: v1_appState.rowsPerPage || 10 }, 'pagination');
 
-                        // Migrate classification results
-                        if (v1_appState.results && Array.isArray(v1_appState.results)) {
-                            v1_appState.results.forEach(v1_result => {
-                                newStarsStore.put({
-                                    fileName: v1_result.filename,
-                                    ticId: v1_result.starId,
-                                    classification: v1_result.classification
-                                });
-                            });
+                    // Migrate classifications
+                    if (v1_appState.results && Array.isArray(v1_appState.results)) {
+                        console.log(`Migrating ${v1_appState.results.length} classifications`);
+                        for (const v1_result of v1_appState.results) {
+                            const fileNameOnly = v1_result.filename.split('/').pop();
+                            const star = await starsStore.get(fileNameOnly);
+                            if (star) {
+                                star.classification = v1_result.classification;
+                                starsStore.put(star);
+                            }
                         }
-
-                        // Migrate current position
-                        const currentFileName = v1_appState.imageFiles && v1_appState.currentIndex < v1_appState.imageFiles.length
-                            ? v1_appState.imageFiles[v1_appState.currentIndex]?.name
-                            : null;
-                        newAppStateStore.put({ currentFileName }, 'classification');
                     }
-                };
 
-                console.log('Migration to v2 complete. V1 data preserved in "state" store for rollback.');
+                    // Migrate current position
+                    const currentFileName = v1_appState.imageFiles && v1_appState.currentIndex < v1_appState.imageFiles.length
+                        ? v1_appState.imageFiles[v1_appState.currentIndex]?.name.split('/').pop()
+                        : null;
+                    appStateStore.put({ classificationCurrentFileName: currentFileName }, 'classification');
+
+                    console.log('App state migrated.');
+                }
+
+                console.log('Migration complete! V1 data preserved in "state" store for rollback.');
             }
         },
     });
