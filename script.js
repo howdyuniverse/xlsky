@@ -450,8 +450,8 @@ async function handleFileSelect(event) {
                 statusText.textContent = `Готово! Знайдено ${zipImageEntries.length} зображень для класифікації.`;
                 uploadSection.classList.add('d-none');
                 uploadNewBtn.classList.remove('d-none');
-                topCopyBtn.disabled = true;
-                topDownloadBtn.disabled = true;
+                topCopyBtn.classList.remove('d-none');
+                topDownloadBtn.classList.remove('d-none');
 
                 // Save all images to IndexedDB
                 await saveAllImagesToDB(zipImageEntries);
@@ -463,21 +463,13 @@ async function handleFileSelect(event) {
                 if (stateRestored && currentClassificatonImageIndex < classificationImages.length) {
                     // Continue from where user left off
                     viewerSection.classList.remove('d-none');
-                    topCopyBtn.classList.remove('d-none');
-                    topDownloadBtn.classList.remove('d-none');
                     displayCurrentClassificationImage();
                 } else if (stateRestored && currentClassificatonImageIndex >= classificationImages.length) {
                     // User had completed classification
-                    topCopyBtn.classList.remove('d-none');
-                    topDownloadBtn.classList.remove('d-none');
                     showCompletionScreen();
                 } else {
                     // Start fresh
                     viewerSection.classList.remove('d-none');
-                    topCopyBtn.classList.remove('d-none');
-                    topCopyBtn.disabled = true;
-                    topDownloadBtn.classList.remove('d-none');
-                    topDownloadBtn.disabled = true;
                     await new Promise(resolve => setTimeout(resolve, 500));
                     displayCurrentClassificationImage();
                 }
@@ -875,12 +867,15 @@ async function copyResultsToClipboard() {
         const starsStore = tx.objectStore('stars');
         const allStars = await starsStore.getAll();
 
+        // Filter only stars with classification "Так" or "Проблематично визначити"
+        const filteredStars = allStars.filter(star =>
+            star.classification === 'Так' || star.classification === 'Проблематично визначити'
+        );
+
         // Create TSV format (Tab-Separated Values) for Excel
         const headers = "Номер TIC\tВідкривач\tЧи зоря змінна ?";
-        const rows = allStars.map(star => {
-            // If classification is null, write empty value in column
-            const classification = star.classification || '';
-            return `${star.ticId}\t\t${classification}`;
+        const rows = filteredStars.map(star => {
+            return `${star.ticId}\t\t${star.classification}`;
         });
         const tsvData = [headers, ...rows].join('\n');
 
@@ -899,10 +894,15 @@ async function downloadResults() {
         const starsStore = tx.objectStore('stars');
         const allStars = await starsStore.getAll();
 
-        const data = allStars.map(star => ({
+        // Filter only stars with classification "Так" or "Проблематично визначити"
+        const filteredStars = allStars.filter(star =>
+            star.classification === 'Так' || star.classification === 'Проблематично визначити'
+        );
+
+        const data = filteredStars.map(star => ({
             "Номер TIC": star.ticId,
             "Відкривач": "",
-            "Чи зоря змінна ?": star.classification || ''
+            "Чи зоря змінна ?": star.classification
         }));
 
         const worksheet = XLSX.utils.json_to_sheet(data);
