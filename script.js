@@ -149,34 +149,49 @@ async function saveAllImagesToDB(zipImageEntries) {
     try {
         console.log(`Saving all ${zipImageEntries.length} images to IndexedDB...`);
 
+        // First, extract all blobs from zip
+        const blobPromises = [];
+        for (let i = 0; i < zipImageEntries.length; i++) {
+            const imageEntry = zipImageEntries[i];
+            if (imageEntry.zipEntry) {
+                statusText.textContent = `Завантаження зображення: ${i + 1} з ${zipImageEntries.length}`;
+                blobPromises.push(
+                    imageEntry.zipEntry.async('blob').then(blob => ({
+                        fileName: imageEntry.name,
+                        blob: blob
+                    }))
+                );
+            }
+        }
+
+        const blobData = await Promise.all(blobPromises);
+
+        // Now save to IndexedDB in one transaction
+        statusText.textContent = 'Збереження зображень в базу даних...';
         const tx = db.transaction(['images', 'stars'], 'readwrite');
         const imagesStore = tx.objectStore('images');
         const starsStore = tx.objectStore('stars');
 
-        for (let i = 0; i < zipImageEntries.length; i++) {
-            const imageEntry = zipImageEntries[i];
-            if (imageEntry.zipEntry) {
-                statusText.textContent = `Збереження зображень: ${i + 1} з ${zipImageEntries.length}`;
-                const blob = await imageEntry.zipEntry.async('blob');
+        for (let i = 0; i < blobData.length; i++) {
+            const { fileName, blob } = blobData[i];
 
-                // Save image blob
-                await imagesStore.put({
-                    fileName: imageEntry.name,
-                    image: blob
-                });
+            // Save image blob
+            imagesStore.put({
+                fileName: fileName,
+                image: blob
+            });
 
-                // Create star record with null classification
-                const starId = extractStarId(imageEntry.name);
-                await starsStore.put({
-                    fileName: imageEntry.name,
-                    ticId: starId,
-                    classification: null
-                });
-            }
+            // Create star record with null classification
+            const starId = extractStarId(fileName);
+            starsStore.put({
+                fileName: fileName,
+                ticId: starId,
+                classification: null
+            });
         }
 
         await tx.done;
-        console.log(`Successfully saved ${zipImageEntries.length} images to IndexedDB`);
+        console.log(`Successfully saved ${blobData.length} images to IndexedDB`);
 
     } catch (error) {
         console.error('Failed to save images to IndexedDB:', error);
