@@ -647,27 +647,26 @@ async function renderFinalResultsTable() {
 
         for (let index = 0; index < paginatedResults.length; index++) {
             const result = paginatedResults[index];
-            const resultIndex = offset + index;
-            const row = await createResultRow(result, resultIndex);
+            const row = await createResultRow(result);
             resultsTableBody.appendChild(row);
         }
     } else {
         // Update existing rows
         Array.from(resultsTableBody.children).forEach((row, index) => {
             if (index < paginatedResults.length) {
-                updateResultRow(row, paginatedResults[index], offset + index);
+                updateResultRow(row, paginatedResults[index]);
             }
         });
     }
 }
 
-async function createResultRow(result, resultIndex) {
+async function createResultRow(result) {
     const row = document.createElement('tr');
-    
+
     const classificationOptions = ['Так', 'Ні', 'Проблематично визначити'];
     const select = document.createElement('select');
     select.classList.add('form-select');
-    select.dataset.resultIndex = resultIndex;
+    select.dataset.fileName = result.filename;
 
     classificationOptions.forEach(option => {
         const optionElement = document.createElement('option');
@@ -681,15 +680,15 @@ async function createResultRow(result, resultIndex) {
 
     select.addEventListener('change', (event) => {
         const newClassification = event.target.value;
-        const indexToUpdate = event.target.dataset.resultIndex;
-        
+        const fileName = event.target.dataset.fileName;
+
         // Immediately update the cell background color
         const cell = event.target.closest('td');
         const classificationClass = getClassificationClass(newClassification);
         cell.className = '';
         cell.classList.add(classificationClass);
-        
-        updateClassification(indexToUpdate, newClassification);
+
+        updateClassification(fileName, newClassification);
     });
 
     const classificationClass = getClassificationClass(result.classification);
@@ -742,9 +741,9 @@ async function loadImageForPreview(imgElement, filename) {
     }
 }
 
-function updateResultRow(row, result, resultIndex) {
+function updateResultRow(row, result) {
     const cells = row.children;
-    
+
     // Update preview image
     const img = cells[0].querySelector('img');
     if (img.alt !== result.filename) {
@@ -752,14 +751,14 @@ function updateResultRow(row, result, resultIndex) {
         // Load new image from IndexedDB
         loadImageForPreview(img, result.filename);
     }
-    
+
     // Update classification
     const select = cells[1].querySelector('select');
     if (select.value !== result.classification) {
         select.value = result.classification;
-        select.dataset.resultIndex = resultIndex;
+        select.dataset.fileName = result.filename;
     }
-    
+
     // Always update classification class to ensure it's correct
     const classificationClass = getClassificationClass(result.classification);
     cells[1].className = '';
@@ -793,18 +792,14 @@ function getClassificationClass(classification) {
     }
 }
 
-async function updateClassification(index, newClassification) {
-    results[index].classification = newClassification;
-
-    // Update only classification field in stars store
-    const result = results[index];
+async function updateClassification(fileName, newClassification) {
     try {
-        const star = await db.get('stars', result.filename);
+        const star = await db.get('stars', fileName);
         if (star) {
             star.classification = newClassification;
             await db.put('stars', star);
         } else {
-            const errorMsg = `Star not found in store: ${result.filename}`;
+            const errorMsg = `Star not found in store: ${fileName}`;
             console.error(errorMsg);
             alert(errorMsg);
         }
