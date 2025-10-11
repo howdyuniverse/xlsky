@@ -77,8 +77,6 @@ async function openDB() {
                 const newStarsStore = transaction.objectStore('stars');
                 const newAppStateStore = transaction.objectStore('appState');
 
-                const migrationDate = Date.now();
-
                 // Migrate images
                 const v1_allImagesRequest = v1_stateStore.get('allImages');
                 v1_allImagesRequest.onsuccess = () => {
@@ -88,8 +86,7 @@ async function openDB() {
                         Object.entries(v1_allImages).forEach(([fileName, blob]) => {
                             newImagesStore.put({
                                 fileName,
-                                image: blob,
-                                importDate: migrationDate
+                                image: blob
                             });
                         });
                     }
@@ -155,7 +152,6 @@ async function saveAllImagesToDB(zipImageEntries) {
         const tx = db.transaction(['images', 'stars'], 'readwrite');
         const imagesStore = tx.objectStore('images');
         const starsStore = tx.objectStore('stars');
-        const importDate = Date.now();
 
         for (let i = 0; i < zipImageEntries.length; i++) {
             const imageEntry = zipImageEntries[i];
@@ -166,8 +162,7 @@ async function saveAllImagesToDB(zipImageEntries) {
                 // Save image blob
                 await imagesStore.put({
                     fileName: imageEntry.name,
-                    image: blob,
-                    importDate
+                    image: blob
                 });
 
                 // Create star record with null classification
