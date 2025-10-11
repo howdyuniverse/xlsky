@@ -11,7 +11,6 @@ let totalStarsCount = 0; // Total number of stars in database for pagination
 let currentPage = 1;
 let rowsPerPage = 10;
 let currentClassificationImageUrl = null;
-let zipInstance = null;
 let saveStateTimeout = null;
 
 // DOM Element References
@@ -148,7 +147,7 @@ async function saveState() {
 }
 
 async function saveAllImagesToDB(zipImageEntries) {
-    if (!db || !zipInstance) return;
+    if (!db) return;
 
     try {
         console.log(`Saving all ${zipImageEntries.length} images to IndexedDB...`);
@@ -183,8 +182,6 @@ async function saveAllImagesToDB(zipImageEntries) {
 
         await tx.done;
         console.log(`Successfully saved ${zipImageEntries.length} images to IndexedDB`);
-
-        zipInstance = null;
 
     } catch (error) {
         console.error('Failed to save images to IndexedDB:', error);
@@ -269,7 +266,6 @@ async function clearCurrentData() {
     totalStarsCount = 0;
     currentPage = 1;
     rowsPerPage = 10;
-    zipInstance = null;
 
     if (db) {
         // Clear v2 stores
@@ -402,15 +398,15 @@ async function handleFileSelect(event) {
 
     try {
         // Non-blocking ZIP loading with progress
-        zipInstance = await JSZip.loadAsync(file, {
+        const zipInstance = await JSZip.loadAsync(file, {
             createFolders: false
         });
-        
+
         statusText.textContent = 'Обробка зображень...';
-        
+
         // Use setTimeout to make processing non-blocking
         await new Promise(resolve => setTimeout(resolve, 10));
-        
+
         let allPngZipEntries = [];
         zipInstance.forEach((relativePath, zipEntry) => {
             if (!zipEntry.dir && zipEntry.name.toLowerCase().endsWith('.png')) {
