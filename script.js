@@ -1,10 +1,11 @@
-import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.0.0/index.js';
+import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.3.0/index.js';
 
 const dbName = 'ImageClassifierDB';
 const dbVersion = 3;
 let db;
 let confirmationModal;
 let copySuccessModal;
+let variabilityModal;
 
 // State Management
 let classificationImages = []; // Array of fileNames for unclassified images only
@@ -57,6 +58,13 @@ const confirmImportBtn = document.getElementById('confirmImportBtn');
 const imageModal = document.getElementById('imageModal');
 const modalImage = document.getElementById('modalImage');
 const closeModal = document.querySelector('.close-modal');
+
+// Variability Modal Elements
+const variabilityModalEl = document.getElementById('variabilityModal');
+const variabilityModalBody = document.getElementById('variabilityModalBody');
+
+// Loading Overlay Element
+const loadingOverlay = document.getElementById('loadingOverlay');
 
 
 // --- IndexedDB Functions ---
@@ -145,8 +153,8 @@ async function openDB() {
                 // Store for all variability matches (array of match objects)
                 db.createObjectStore('variabilityData', { keyPath: 'fileName' });
 
-                // Store for first match only (for display in results table)
-                db.createObjectStore('variabilityFirstMatch', { keyPath: 'fileName' });
+                // Store for summary info (first match + count)
+                db.createObjectStore('variabilitySummary', { keyPath: 'fileName' });
 
                 console.log('V3 stores created.');
             }
@@ -309,7 +317,7 @@ async function clearCurrentData() {
 
         // Clear v3 stores
         await db.clear('variabilityData');
-        await db.clear('variabilityFirstMatch');
+        await db.clear('variabilitySummary');
 
         // Clear v1 store for clean slate
         await db.clear('state');
@@ -474,6 +482,7 @@ function switchView(view) {
 async function init() {
     confirmationModal = new bootstrap.Modal(confirmationModalEl);
     copySuccessModal = new bootstrap.Modal(copySuccessModalEl);
+    variabilityModal = new bootstrap.Modal(variabilityModalEl);
     const importModal = new bootstrap.Modal(importModalEl);
 
     // Import button opens modal
@@ -914,46 +923,159 @@ async function loadImageForPreview(imgElement, filename) {
 
 async function loadVariabilityInfo(cellElement, filename) {
     try {
-        const firstMatchRecord = await db.get('variabilityFirstMatch', filename);
+        const summaryRecord = await db.get('variabilitySummary', filename);
 
-        if (!firstMatchRecord || !firstMatchRecord.firstMatch) {
-            cellElement.innerText = '';
+        if (!summaryRecord || !summaryRecord.firstMatch) {
+            cellElement.innerHTML = '';
             return;
         }
 
-        const match = firstMatchRecord.firstMatch;
-        cellElement.innerHTML = formatVariabilityMatch(match);
+        const match = summaryRecord.firstMatch;
+        const matchCount = summaryRecord.matchCount || 0;
+
+        // Create container with info and link
+        const container = document.createElement('div');
+
+        const infoDiv = document.createElement('div');
+        infoDiv.innerHTML = formatVariabilityMatch(match);
+
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'text-primary text-decoration-none';
+        link.style.fontSize = '0.9em';
+        link.innerHTML = `Кількість збігів: ${matchCount}`;
+        link.onclick = (e) => {
+            e.preventDefault();
+            showVariabilityDetails(filename);
+        };
+
+        container.appendChild(infoDiv);
+        container.appendChild(link);
+
+        cellElement.innerHTML = '';
+        cellElement.appendChild(container);
     } catch (error) {
         console.error('Failed to load variability info:', error);
-        cellElement.innerText = '';
+        cellElement.innerHTML = '';
     }
 }
 
 function formatVariabilityMatch(match) {
     if (!match) return '';
 
+    const sourceLabel = getSourceLabel(match.source);
+
     switch (match.source) {
         case 'otype':
         case 'other_types':
-            return `<strong>${match.match_text}</strong>: ${match.description || ''}`;
+            return `${sourceLabel}: ${match.match_text}`;
 
         case 'bibcode':
-            return `<strong>Bibcode:</strong> ${match.match_text}<br><em>${match.title || ''}</em>`;
+            return `${sourceLabel}: ${match.match_text}`;
 
         case 'title':
         case 'keywords':
         case 'abstract':
-            const sourceLabel = match.source === 'title' ? 'Title' :
-                              match.source === 'keywords' ? 'Keywords' : 'Abstract';
-            let html = `<strong>${sourceLabel}:</strong> ${match.match_text}`;
-            if (match.context) {
-                html += `<br><small>${match.context}</small>`;
-            }
-            return html;
+            return `${sourceLabel}: ${match.match_text}`;
 
         default:
-            return JSON.stringify(match);
+            return `${sourceLabel}: ${match.match_text}`;
     }
+}
+
+async function showVariabilityDetails(filename) {
+    try {
+        const variabilityRecord = await db.get('variabilityData', filename);
+
+        if (!variabilityRecord || !variabilityRecord.matches || variabilityRecord.matches.length === 0) {
+            variabilityModalBody.innerHTML = '<p>Немає даних про змінність цієї зірки.</p>';
+            variabilityModal.show();
+            return;
+        }
+
+        const matches = variabilityRecord.matches;
+        let html = `<p class="mb-3"><strong>Знайдено збігів:</strong> ${matches.length}</p>`;
+
+        matches.forEach((match, index) => {
+            html += `<div class="card mb-3">
+                <div class="card-header">
+                    <strong>Збіг #${index + 1}</strong> <span class="badge bg-info">${getSourceLabel(match.source)}</span>
+                    <span class="badge bg-secondary">Пріоритет: ${match.priority}</span>
+                </div>
+                <div class="card-body">
+                    ${formatVariabilityMatchDetailed(match)}
+                </div>
+            </div>`;
+        });
+
+        variabilityModalBody.innerHTML = html;
+        variabilityModal.show();
+    } catch (error) {
+        console.error('Failed to show variability details:', error);
+        variabilityModalBody.innerHTML = '<p class="text-danger">Помилка завантаження даних.</p>';
+        variabilityModal.show();
+    }
+}
+
+function getSourceLabel(source) {
+    const labels = {
+        'otype': 'Тип об\'єкта',
+        'other_types': 'Інші типи',
+        'bibcode': 'Бібліографічний код',
+        'title': 'Заголовок',
+        'keywords': 'Ключові слова',
+        'abstract': 'Анотація'
+    };
+    return labels[source] || source;
+}
+
+function formatVariabilityMatchDetailed(match) {
+    if (!match) return '';
+
+    let html = '';
+
+    switch (match.source) {
+        case 'otype':
+        case 'other_types':
+            html += `<p><strong>Тип:</strong> <code>${match.match_text}</code></p>`;
+            if (match.description) {
+                html += `<p><strong>Опис:</strong> ${match.description}</p>`;
+            }
+            break;
+
+        case 'bibcode':
+            html += `<p><strong>Bibcode:</strong> <code>${match.match_text}</code></p>`;
+            if (match.title) {
+                html += `<p><strong>Назва публікації:</strong> <em>${match.title}</em></p>`;
+            }
+            if (match.doi) {
+                html += `<p><strong>DOI:</strong> <a href="https://doi.org/${match.doi}" target="_blank" rel="noopener noreferrer">${match.doi}</a></p>`;
+            }
+            break;
+
+        case 'title':
+        case 'keywords':
+        case 'abstract':
+            html += `<p><strong>Знайдене слово:</strong> <code>${match.match_text}</code></p>`;
+            if (match.context) {
+                html += `<p><strong>Контекст:</strong><br><small class="text-muted">${match.context}</small></p>`;
+            }
+            if (match.bibcode) {
+                html += `<p><strong>Bibcode:</strong> <code>${match.bibcode}</code></p>`;
+            }
+            if (match.title) {
+                html += `<p><strong>Назва публікації:</strong> <em>${match.title}</em></p>`;
+            }
+            if (match.doi) {
+                html += `<p><strong>DOI:</strong> <a href="https://doi.org/${match.doi}" target="_blank" rel="noopener noreferrer">${match.doi}</a></p>`;
+            }
+            break;
+
+        default:
+            html += `<pre>${JSON.stringify(match, null, 2)}</pre>`;
+    }
+
+    return html;
 }
 
 function updateResultRow(row, result) {
@@ -1096,8 +1218,9 @@ function createPaginationItem(pageNum) {
 async function copyResultsToClipboard() {
     try {
         // Read all stars from database
-        const tx = db.transaction('stars', 'readonly');
+        const tx = db.transaction(['stars', 'variabilitySummary'], 'readonly');
         const starsStore = tx.objectStore('stars');
+        const variabilitySummaryStore = tx.objectStore('variabilitySummary');
         const allStars = await starsStore.getAll();
 
         // Filter only stars with classification "Так" or "Проблематично визначити"
@@ -1106,10 +1229,20 @@ async function copyResultsToClipboard() {
         );
 
         // Create TSV format (Tab-Separated Values) for Excel
-        const headers = "Номер TIC\tВідкривач\tЧи зоря змінна ?";
-        const rows = filteredStars.map(star => {
-            return `${star.ticId}\t\t${star.classification}`;
-        });
+        const headers = "Номер TIC\tВідкривач\tЧи зоря змінна ?\tЧи була вона відкрита іншими як змінна ?\tВідома інформація про цю зорю в SIMBAD, AAVSO";
+
+        const rows = [];
+        for (const star of filteredStars) {
+            // Get variability info
+            const summaryRecord = await variabilitySummaryStore.get(star.fileName);
+            let variabilityInfo = '';
+            if (summaryRecord && summaryRecord.firstMatch) {
+                variabilityInfo = formatVariabilityMatch(summaryRecord.firstMatch);
+            }
+
+            rows.push(`${star.ticId}\t\t${star.classification}\t\t${variabilityInfo}`);
+        }
+
         const tsvData = [headers, ...rows].join('\n');
 
         await navigator.clipboard.writeText(tsvData);
@@ -1123,8 +1256,9 @@ async function copyResultsToClipboard() {
 async function downloadResults() {
     try {
         // Read all stars from database
-        const tx = db.transaction('stars', 'readonly');
+        const tx = db.transaction(['stars', 'variabilitySummary'], 'readonly');
         const starsStore = tx.objectStore('stars');
+        const variabilitySummaryStore = tx.objectStore('variabilitySummary');
         const allStars = await starsStore.getAll();
 
         // Filter only stars with classification "Так" or "Проблематично визначити"
@@ -1132,11 +1266,23 @@ async function downloadResults() {
             star.classification === 'Так' || star.classification === 'Проблематично визначити'
         );
 
-        const data = filteredStars.map(star => ({
-            "Номер TIC": star.ticId,
-            "Відкривач": "",
-            "Чи зоря змінна ?": star.classification
-        }));
+        const data = [];
+        for (const star of filteredStars) {
+            // Get variability info
+            const summaryRecord = await variabilitySummaryStore.get(star.fileName);
+            let variabilityInfo = '';
+            if (summaryRecord && summaryRecord.firstMatch) {
+                variabilityInfo = formatVariabilityMatch(summaryRecord.firstMatch);
+            }
+
+            data.push({
+                "Номер TIC": star.ticId,
+                "Відкривач": "",
+                "Чи зоря змінна ?": star.classification,
+                "Чи була вона відкрита іншими як змінна ?": "",
+                "Відома інформація про цю зорю в SIMBAD, AAVSO": variabilityInfo
+            });
+        }
 
         const worksheet = XLSX.utils.json_to_sheet(data);
         const workbook = XLSX.utils.book_new();
@@ -1231,10 +1377,10 @@ async function importResultsFromTextarea() {
         }
 
         // Perform update in transaction
-        const updateTx = db.transaction(['stars', 'variabilityData', 'variabilityFirstMatch'], 'readwrite');
+        const updateTx = db.transaction(['stars', 'variabilityData', 'variabilitySummary'], 'readwrite');
         const updateStarsStore = updateTx.objectStore('stars');
         const variabilityDataStore = updateTx.objectStore('variabilityData');
-        const variabilityFirstMatchStore = updateTx.objectStore('variabilityFirstMatch');
+        const variabilitySummaryStore = updateTx.objectStore('variabilitySummary');
 
         // Update all stars: set from imported data or set to "Ні"
         for (const star of allStars) {
@@ -1248,7 +1394,7 @@ async function importResultsFromTextarea() {
             // Clear variability data for this star
             try {
                 await variabilityDataStore.delete(star.fileName);
-                await variabilityFirstMatchStore.delete(star.fileName);
+                await variabilitySummaryStore.delete(star.fileName);
             } catch (e) {
                 // Ignore if entry doesn't exist
             }
@@ -1279,6 +1425,9 @@ function extractStarId(filename) {
 
 async function findInformationAboutStars() {
     try {
+        // Show loading overlay
+        loadingOverlay.classList.add('show');
+
         // Read all stars from database
         const tx = db.transaction('stars', 'readonly');
         const starsStore = tx.objectStore('stars');
@@ -1290,6 +1439,7 @@ async function findInformationAboutStars() {
         );
 
         if (filteredStars.length === 0) {
+            loadingOverlay.classList.remove('show');
             alert('Не знайдено зірок з класифікацією "Так" або "Проблематично визначити"');
             return;
         }
@@ -1305,9 +1455,9 @@ async function findInformationAboutStars() {
         console.log('checkStarsVariability result:', result);
 
         // Save the results to IndexedDB
-        const saveTx = db.transaction(['variabilityData', 'variabilityFirstMatch'], 'readwrite');
+        const saveTx = db.transaction(['variabilityData', 'variabilitySummary'], 'readwrite');
         const variabilityDataStore = saveTx.objectStore('variabilityData');
-        const variabilityFirstMatchStore = saveTx.objectStore('variabilityFirstMatch');
+        const variabilitySummaryStore = saveTx.objectStore('variabilitySummary');
 
         // Create a map of ticId to fileName for quick lookup
         const ticIdToFileName = new Map();
@@ -1325,10 +1475,11 @@ async function findInformationAboutStars() {
                     matches: matches
                 });
 
-                // Store first match (or null if empty array)
-                await variabilityFirstMatchStore.put({
+                // Store summary (first match + count)
+                await variabilitySummaryStore.put({
                     fileName: fileName,
-                    firstMatch: matches.length > 0 ? matches[0] : null
+                    firstMatch: matches.length > 0 ? matches[0] : null,
+                    matchCount: matches.length
                 });
             }
         }
@@ -1338,9 +1489,15 @@ async function findInformationAboutStars() {
         // Refresh the results table to show the new data
         await renderFinalResultsTable();
 
+        // Hide loading overlay
+        loadingOverlay.classList.remove('show');
+
         alert('Інформацію про зірки успішно завантажено!');
     } catch (error) {
         console.error('Error in findInformationAboutStars:', error);
+
+        // Hide loading overlay
+        loadingOverlay.classList.remove('show');
 
         // Show user-friendly error message
         let errorMessage = 'Помилка при перевірці інформації про зірки.';
