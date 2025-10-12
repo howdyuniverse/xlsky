@@ -2,6 +2,46 @@ body {
     background-color: #f8f9fa;
 }
 
+/* Toolbar Styles */
+.toolbar-container {
+    background: white;
+    border-radius: 8px;
+    padding: 12px 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+}
+
+.toolbar-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.toolbar-group .btn {
+    white-space: nowrap;
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.toolbar-group .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.toolbar-group .btn i {
+    margin-right: 4px;
+}
+
 /* Compact header styling */
 .navbar {
     padding: 0.4rem 1rem;
@@ -208,21 +248,26 @@ body {
         padding-left: 10px;
         padding-right: 10px;
     }
-    
-    /* Keep top buttons horizontal on mobile */
-    .mb-2 {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
+
+    /* Responsive toolbar for mobile */
+    .toolbar-container {
+        padding: 10px;
+    }
+
+    .toolbar-row {
+        flex-direction: column;
         gap: 8px;
     }
-    
-    .mb-2 .btn {
-        flex: 1;
-        min-width: 120px;
-        max-width: 200px;
+
+    .toolbar-group {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .toolbar-group .btn {
+        width: 100%;
         font-size: 0.85rem;
-        padding: 0.4rem 0.6rem;
+        padding: 0.4rem 0.8rem;
     }
     
     .classification-buttons {
