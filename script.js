@@ -5,13 +5,15 @@ let confirmationModal;
 let copySuccessModal;
 
 // State Management
-let classificationImages = []; // Array of fileNames for classification
+let classificationImages = []; // Array of fileNames for unclassified images only
 let currentClassificatonImageIndex = 0;
 let totalStarsCount = 0; // Total number of stars in database for pagination
+let classifiedCount = 0; // Number of classified images
 let currentPage = 1;
 let rowsPerPage = 10;
 let currentClassificationImageUrl = null;
 let saveStateTimeout = null;
+let currentView = 'classifier'; // 'classifier' or 'results'
 
 // DOM Element References
 const zipInput = document.getElementById('zip-input');
@@ -22,6 +24,11 @@ const displayImage = document.getElementById('display-image');
 const uploadSection = document.getElementById('upload-section');
 const viewerSection = document.getElementById('viewer-section');
 const resultsSection = document.getElementById('results-section');
+const navigationTabs = document.getElementById('navigation-tabs');
+const classifierTab = document.getElementById('classifier-tab');
+const resultsTab = document.getElementById('results-tab');
+const classificationContent = document.getElementById('classification-content');
+const allClassifiedMessage = document.getElementById('all-classified-message');
 const yesBtn = document.getElementById('yes-btn');
 const problematicBtn = document.getElementById('problematic-btn');
 const noBtn = document.getElementById('no-btn');
@@ -139,10 +146,6 @@ async function saveState() {
     // Save pagination settings
     await appState.put({ rowsPerPage }, 'pagination');
 
-    // Save current classification state
-    const classificationCurrentFileName = currentClassificatonImageIndex < classificationImages.length ? classificationImages[currentClassificatonImageIndex] : null;
-    await appState.put({ classificationCurrentFileName }, 'classification');
-
     await tx.done;
 }
 
@@ -233,20 +236,18 @@ async function loadState() {
         const allStars = await starsStore.getAll();
 
         if (allStars && allStars.length > 0) {
-            // Build classificationImages from stars (just fileNames)
-            classificationImages = allStars.map(star => star.fileName);
             totalStarsCount = allStars.length;
 
-            // Load current position
-            const classificationState = await db.get('appState', 'classification');
-            if (classificationState && classificationState.classificationCurrentFileName) {
-                currentClassificatonImageIndex = classificationImages.findIndex(f => f === classificationState.classificationCurrentFileName);
-                if (currentClassificatonImageIndex === -1) currentClassificatonImageIndex = 0;
-            } else {
-                // Count classified stars
-                const classifiedCount = allStars.filter(star => star.classification !== null).length;
-                currentClassificatonImageIndex = classifiedCount;
-            }
+            // Build classificationImages from ONLY unclassified stars
+            // This gets rebuilt on every page load with current unclassified images
+            const unclassifiedStars = allStars.filter(star => star.classification === null);
+            classificationImages = unclassifiedStars.map(star => star.fileName);
+
+            // Count classified stars
+            classifiedCount = allStars.filter(star => star.classification !== null).length;
+
+            // Always start from the beginning after page reload
+            currentClassificatonImageIndex = 0;
 
             return true;
         }
@@ -356,19 +357,104 @@ rowsPerPageSelect.addEventListener('change', () => {
     renderPaginationControls();
 });
 
+// Navigation tab listeners
+classifierTab.addEventListener('click', (e) => {
+    e.preventDefault();
+    switchView('classifier');
+    updateURL('classifier');
+});
+
+resultsTab.addEventListener('click', (e) => {
+    e.preventDefault();
+    switchView('results');
+    updateURL('results');
+});
+
+// Handle browser back/forward buttons
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.view) {
+        switchView(event.state.view);
+    } else if (classificationImages.length > 0) {
+        // Default to classifier view if data is loaded
+        switchView('classifier');
+    }
+});
+
+function updateURL(view) {
+    const url = new URL(window.location);
+    if (view === 'classifier') {
+        url.searchParams.set('view', 'classificator');
+    } else {
+        url.searchParams.set('view', view);
+    }
+    window.history.pushState({ view }, '', url);
+}
+
+function getViewFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view');
+    // Support both 'classificator' and 'classifier' in URL
+    if (viewParam === 'classificator' || viewParam === 'classifier') {
+        return 'classifier';
+    }
+    return viewParam;
+}
+
+function getDefaultView() {
+    // If no view in URL, determine default based on classification state
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('view')) {
+        // Check if all images are classified
+        if (currentClassificatonImageIndex >= classificationImages.length && classificationImages.length > 0) {
+            return 'results';
+        }
+        return 'classifier';
+    }
+    return getViewFromURL();
+}
+
+function switchView(view) {
+    currentView = view;
+
+    if (view === 'classifier') {
+        classifierTab.classList.add('active');
+        resultsTab.classList.remove('active');
+        viewerSection.classList.remove('d-none');
+        resultsSection.classList.add('d-none');
+
+        // Show appropriate content in classifier view
+        if (currentClassificatonImageIndex < classificationImages.length) {
+            classificationContent.classList.remove('d-none');
+            allClassifiedMessage.classList.add('d-none');
+            displayCurrentClassificationImage();
+        } else {
+            classificationContent.classList.add('d-none');
+            allClassifiedMessage.classList.remove('d-none');
+        }
+    } else if (view === 'results') {
+        classifierTab.classList.remove('active');
+        resultsTab.classList.add('active');
+        viewerSection.classList.add('d-none');
+        resultsSection.classList.remove('d-none');
+        renderFinalResultsTable();
+        renderPaginationControls();
+    }
+}
+
 async function init() {
     confirmationModal = new bootstrap.Modal(confirmationModalEl);
     copySuccessModal = new bootstrap.Modal(copySuccessModalEl);
     confirmUploadBtn.addEventListener('click', async () => {
         await clearCurrentData();
-        
+
         resultsSection.classList.add('d-none');
         viewerSection.classList.add('d-none');
+        navigationTabs.classList.add('d-none');
         uploadNewBtn.classList.add('d-none');
         topCopyBtn.classList.add('d-none');
         topDownloadBtn.classList.add('d-none');
         uploadSection.classList.remove('d-none');
-        
+
         // Clear the file input to allow selecting the same file again
         zipInput.value = '';
 
@@ -376,7 +462,7 @@ async function init() {
     });
 
     db = await openDB();
-    
+
     // Try to restore state from IndexedDB
     const stateRestored = await loadState();
     if (stateRestored) {
@@ -384,14 +470,12 @@ async function init() {
         uploadNewBtn.classList.remove('d-none');
         topCopyBtn.classList.remove('d-none');
         topDownloadBtn.classList.remove('d-none');
+        navigationTabs.classList.remove('d-none');
 
-        if (currentClassificatonImageIndex < classificationImages.length) {
-            viewerSection.classList.remove('d-none');
-            displayCurrentClassificationImage();
-        } else {
-            resultsSection.classList.remove('d-none');
-            showCompletionScreen();
-        }
+        // Check URL for initial view, or determine based on classification state
+        const initialView = getDefaultView();
+        switchView(initialView);
+        updateURL(initialView);
     } else {
         uploadSection.classList.remove('d-none');
     }
@@ -457,6 +541,7 @@ async function handleFileSelect(event) {
                 uploadNewBtn.classList.remove('d-none');
                 topCopyBtn.classList.remove('d-none');
                 topDownloadBtn.classList.remove('d-none');
+                navigationTabs.classList.remove('d-none');
 
                 // Save all images to IndexedDB
                 await saveAllImagesToDB(zipImageEntries);
@@ -465,19 +550,11 @@ async function handleFileSelect(event) {
                 const stateRestored = await loadState();
                 await saveState();
 
-                if (stateRestored && currentClassificatonImageIndex < classificationImages.length) {
-                    // Continue from where user left off
-                    viewerSection.classList.remove('d-none');
-                    displayCurrentClassificationImage();
-                } else if (stateRestored && currentClassificatonImageIndex >= classificationImages.length) {
-                    // User had completed classification
-                    showCompletionScreen();
-                } else {
-                    // Start fresh
-                    viewerSection.classList.remove('d-none');
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    displayCurrentClassificationImage();
-                }
+                // Check URL for initial view, or determine based on classification state
+                await new Promise(resolve => setTimeout(resolve, 500));
+                const initialView = getDefaultView();
+                switchView(initialView);
+                updateURL(initialView);
             }
         } else {
             statusText.textContent = 'У ZIP-файлі не знайдено зображень PNG на першому рівні.';
@@ -509,7 +586,7 @@ async function displayCurrentClassificationImage() {
             }
 
             const starId = star.ticId;
-            statusText.textContent = `Завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length} | TIC ${starId}`;
+            statusText.textContent = `Класифіковано ${classifiedCount} зображень з ${totalStarsCount} | TIC ${starId}`;
 
             // Get image from IndexedDB
             const blob = await getImageBlobFromDB(fileName);
@@ -517,7 +594,7 @@ async function displayCurrentClassificationImage() {
             if (blob) {
                 currentClassificationImageUrl = URL.createObjectURL(blob);
                 displayImage.src = currentClassificationImageUrl;
-                statusText.textContent = `Зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length} | TIC ${starId}`;
+                statusText.textContent = `Класифіковано ${classifiedCount} зображень з ${totalStarsCount} | TIC ${starId}`;
             } else {
                 const errorMsg = `Image not found in database: ${fileName}`;
                 console.error(errorMsg);
@@ -527,11 +604,14 @@ async function displayCurrentClassificationImage() {
             const errorMsg = `Error loading image: ${error.message}`;
             console.error(errorMsg, error);
             alert(errorMsg);
-            statusText.textContent = `Помилка завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length}`;
+            statusText.textContent = `Помилка завантаження зображення`;
         }
     } else {
-        showCompletionScreen();
+        // All images classified, show completion message in classifier view
+        classificationContent.classList.add('d-none');
+        allClassifiedMessage.classList.remove('d-none');
     }
+    // Enable back button only if we're not at the start
     backBtn.disabled = currentClassificatonImageIndex === 0;
 }
 
@@ -576,6 +656,21 @@ async function classify(classification) {
 
         star.classification = classification;
         await db.put('stars', star);
+
+        // Update counts
+        classifiedCount++;
+
+        // Move to next image
+        currentClassificatonImageIndex++;
+
+        // Check if all images are now classified
+        if (currentClassificatonImageIndex >= classificationImages.length) {
+            // All unclassified images have been classified, redirect to results
+            await saveState();
+            switchView('results');
+            updateURL('results');
+            return;
+        }
     } catch (error) {
         const errorMsg = `Failed to save classification: ${error.message}`;
         console.error(errorMsg, error);
@@ -583,37 +678,40 @@ async function classify(classification) {
         return;
     }
 
-    currentClassificatonImageIndex++;
     await saveState();
     displayCurrentClassificationImage();
 }
 
 async function goBack() {
-    if (currentClassificatonImageIndex > 0) {
+    // We can only go back if we're not at the start
+    if (currentClassificatonImageIndex === 0) return;
+
+    try {
+        // Move back one image
         currentClassificatonImageIndex--;
         const filename = classificationImages[currentClassificatonImageIndex];
 
-        // Set classification back to null in stars store
-        try {
-            const star = await db.get('stars', filename);
-            if (star) {
-                star.classification = null;
-                await db.put('stars', star);
-            }
-        } catch (error) {
-            console.error('Failed to update classification:', error);
+        // Unclassify the current image
+        const star = await db.get('stars', filename);
+        if (star && star.classification !== null) {
+            star.classification = null;
+            await db.put('stars', star);
+
+            // Update counts
+            classifiedCount--;
+        }
+
+        // If we were showing the completion message, hide it and show classification content
+        if (allClassifiedMessage.classList.contains('d-none') === false) {
+            allClassifiedMessage.classList.add('d-none');
+            classificationContent.classList.remove('d-none');
         }
 
         await saveState();
         displayCurrentClassificationImage();
+    } catch (error) {
+        console.error('Failed to go back:', error);
     }
-}
-
-function showCompletionScreen() {
-    viewerSection.classList.add('d-none');
-    resultsSection.classList.remove('d-none');
-    renderFinalResultsTable();
-    renderPaginationControls();
 }
 
 async function renderFinalResultsTable() {
@@ -670,7 +768,7 @@ async function renderFinalResultsTable() {
 async function createResultRow(result) {
     const row = document.createElement('tr');
 
-    const classificationOptions = ['Так', 'Ні', 'Проблематично визначити'];
+    const classificationOptions = ['', 'Так', 'Ні', 'Проблематично визначити'];
     const select = document.createElement('select');
     select.classList.add('form-select');
     select.dataset.fileName = result.filename;
@@ -678,29 +776,33 @@ async function createResultRow(result) {
     classificationOptions.forEach(option => {
         const optionElement = document.createElement('option');
         optionElement.value = option;
-        optionElement.innerText = option;
-        if (option === result.classification) {
+        optionElement.innerText = option || '-';
+        if (option === (result.classification || '')) {
             optionElement.selected = true;
         }
         select.appendChild(optionElement);
     });
 
     select.addEventListener('change', (event) => {
-        const newClassification = event.target.value;
+        const newClassification = event.target.value || null;
         const fileName = event.target.dataset.fileName;
 
         // Immediately update the cell background color
         const cell = event.target.closest('td');
         const classificationClass = getClassificationClass(newClassification);
         cell.className = '';
-        cell.classList.add(classificationClass);
+        if (classificationClass) {
+            cell.classList.add(classificationClass);
+        }
 
         updateClassification(fileName, newClassification);
     });
 
     const classificationClass = getClassificationClass(result.classification);
     const classificationCell = document.createElement('td');
-    classificationCell.classList.add(classificationClass);
+    if (classificationClass) {
+        classificationCell.classList.add(classificationClass);
+    }
     classificationCell.appendChild(select);
 
     const previewCell = document.createElement('td');
@@ -761,15 +863,17 @@ function updateResultRow(row, result) {
 
     // Update classification
     const select = cells[1].querySelector('select');
-    if (select.value !== result.classification) {
-        select.value = result.classification;
+    if (select.value !== (result.classification || '')) {
+        select.value = result.classification || '';
         select.dataset.fileName = result.filename;
     }
 
     // Always update classification class to ensure it's correct
     const classificationClass = getClassificationClass(result.classification);
     cells[1].className = '';
-    cells[1].classList.add(classificationClass);
+    if (classificationClass) {
+        cells[1].classList.add(classificationClass);
+    }
     
     // Update star ID and link
     const link = cells[2].querySelector('a');
@@ -803,8 +907,27 @@ async function updateClassification(fileName, newClassification) {
     try {
         const star = await db.get('stars', fileName);
         if (star) {
+            const previousClassification = star.classification;
             star.classification = newClassification;
             await db.put('stars', star);
+
+            // Only reload if classification changed to/from null
+            if (previousClassification === null || newClassification === null) {
+                // Reload classificationImages from storage
+                const tx = db.transaction('stars', 'readonly');
+                const starsStore = tx.objectStore('stars');
+                const allStars = await starsStore.getAll();
+
+                // Rebuild classificationImages with unclassified stars
+                const unclassifiedStars = allStars.filter(star => star.classification === null);
+                classificationImages = unclassifiedStars.map(star => star.fileName);
+
+                // Update classified count
+                classifiedCount = allStars.filter(star => star.classification !== null).length;
+
+                // Reset index to start
+                currentClassificatonImageIndex = 0;
+            }
         } else {
             const errorMsg = `Star not found in store: ${fileName}`;
             console.error(errorMsg);

@@ -37,6 +37,42 @@ body {
     display: none !important;
 }
 
+/* Navigation tabs styling in navbar */
+#navigation-tabs.collapse:not(.show) {
+    display: block !important;
+}
+
+#navigation-tabs .navbar-nav {
+    gap: 0.25rem;
+}
+
+#navigation-tabs .nav-link {
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    transition: all 0.2s ease;
+}
+
+#navigation-tabs .nav-link:hover {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+#navigation-tabs .nav-link.active {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.25);
+    font-weight: 600;
+}
+
+/* Mobile responsive for navigation tabs */
+@media (max-width: 576px) {
+    #navigation-tabs .nav-link {
+        padding: 0.4rem 0.7rem;
+        font-size: 0.875rem;
+    }
+}
+
 #viewer-section {
     display: flex;
     flex-direction: column;
