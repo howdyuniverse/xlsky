@@ -39,6 +39,7 @@ const uploadNewBtn = document.querySelector('.upload-new-btn');
 const topCopyBtn = document.getElementById('top-copy-btn');
 const topDownloadBtn = document.getElementById('top-download-btn');
 const topImportBtn = document.getElementById('top-import-btn');
+const topFindInfoBtn = document.getElementById('top-find-info-btn');
 const resultsTableBody = document.querySelector('#results-table tbody');
 const paginationControls = document.getElementById('pagination-controls');
 const rowsPerPageSelect = document.getElementById('rows-per-page-select');
@@ -324,6 +325,7 @@ backBtn.addEventListener('click', goBack);
 uploadNewBtn.addEventListener('click', uploadNewFileHandler);
 topCopyBtn.addEventListener('click', copyResultsToClipboard);
 topDownloadBtn.addEventListener('click', downloadResults);
+topFindInfoBtn.addEventListener('click', findInformationAboutStars);
 window.addEventListener('beforeunload', cleanupOnUnload);
 
 resultsTableBody.addEventListener('click', (event) => {
@@ -477,6 +479,7 @@ async function init() {
         topCopyBtn.classList.add('d-none');
         topDownloadBtn.classList.add('d-none');
         topImportBtn.classList.add('d-none');
+        topFindInfoBtn.classList.add('d-none');
         uploadSection.classList.remove('d-none');
 
         // Clear the file input to allow selecting the same file again
@@ -495,6 +498,7 @@ async function init() {
         topCopyBtn.classList.remove('d-none');
         topDownloadBtn.classList.remove('d-none');
         topImportBtn.classList.remove('d-none');
+        topFindInfoBtn.classList.remove('d-none');
         navigationTabs.classList.remove('d-none');
 
         // Check URL for initial view, or determine based on classification state
@@ -567,6 +571,7 @@ async function handleFileSelect(event) {
                 topCopyBtn.classList.remove('d-none');
                 topDownloadBtn.classList.remove('d-none');
                 topImportBtn.classList.remove('d-none');
+                topFindInfoBtn.classList.remove('d-none');
                 navigationTabs.classList.remove('d-none');
 
                 // Save all images to IndexedDB
@@ -858,10 +863,15 @@ async function createResultRow(result) {
     link.innerText = result.starId;
     filenameCell.appendChild(link);
 
+    // New column for known information (empty for now)
+    const infoCell = document.createElement('td');
+    infoCell.innerText = '';
+
     row.appendChild(previewCell);
-    row.appendChild(classificationCell);
     row.appendChild(filenameCell);
-    
+    row.appendChild(classificationCell);
+    row.appendChild(infoCell);
+
     return row;
 }
 
@@ -894,22 +904,8 @@ function updateResultRow(row, result) {
         loadImageForPreview(img, result.filename);
     }
 
-    // Update classification
-    const select = cells[1].querySelector('select');
-    if (select.value !== (result.classification || '')) {
-        select.value = result.classification || '';
-        select.dataset.fileName = result.filename;
-    }
-
-    // Always update classification class to ensure it's correct
-    const classificationClass = getClassificationClass(result.classification);
-    cells[1].className = '';
-    if (classificationClass) {
-        cells[1].classList.add(classificationClass);
-    }
-    
     // Update star ID and link
-    const link = cells[2].querySelector('a');
+    const link = cells[1].querySelector('a');
     if (link) {
         if (link.innerText !== result.starId) {
             link.innerText = result.starId;
@@ -917,13 +913,32 @@ function updateResultRow(row, result) {
         }
     } else {
         // Create link if it doesn't exist
-        cells[2].innerHTML = '';
+        cells[1].innerHTML = '';
         const newLink = document.createElement('a');
         newLink.href = `https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=TIC+${result.starId}&submit=SIMBAD+search`;
         newLink.target = '_blank';
         newLink.rel = 'noopener noreferrer';
         newLink.innerText = result.starId;
-        cells[2].appendChild(newLink);
+        cells[1].appendChild(newLink);
+    }
+
+    // Update classification
+    const select = cells[2].querySelector('select');
+    if (select.value !== (result.classification || '')) {
+        select.value = result.classification || '';
+        select.dataset.fileName = result.filename;
+    }
+
+    // Always update classification class to ensure it's correct
+    const classificationClass = getClassificationClass(result.classification);
+    cells[2].className = '';
+    if (classificationClass) {
+        cells[2].classList.add(classificationClass);
+    }
+
+    // Update info cell (empty for now)
+    if (cells[3]) {
+        cells[3].innerText = '';
     }
 }
 
@@ -1187,4 +1202,8 @@ async function importResultsFromTextarea() {
 function extractStarId(filename) {
     const match = filename.match(/TIC_(\d+)_/);
     return match ? match[1] : 'N/A';
+}
+
+async function findInformationAboutStars() {
+    console.log('findInformationAboutStars called');
 }
