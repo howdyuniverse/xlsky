@@ -36,12 +36,16 @@ const backBtn = document.getElementById('back-btn');
 const uploadNewBtn = document.querySelector('.upload-new-btn');
 const topCopyBtn = document.getElementById('top-copy-btn');
 const topDownloadBtn = document.getElementById('top-download-btn');
+const topImportBtn = document.getElementById('top-import-btn');
 const resultsTableBody = document.querySelector('#results-table tbody');
 const paginationControls = document.getElementById('pagination-controls');
 const rowsPerPageSelect = document.getElementById('rows-per-page-select');
 const confirmationModalEl = document.getElementById('confirmationModal');
 const confirmUploadBtn = document.getElementById('confirmUploadBtn');
 const copySuccessModalEl = document.getElementById('copySuccessModal');
+const importModalEl = document.getElementById('importModal');
+const importTextarea = document.getElementById('import-textarea');
+const confirmImportBtn = document.getElementById('confirmImportBtn');
 
 // Image Modal Elements
 const imageModal = document.getElementById('imageModal');
@@ -438,6 +442,20 @@ function switchView(view) {
 async function init() {
     confirmationModal = new bootstrap.Modal(confirmationModalEl);
     copySuccessModal = new bootstrap.Modal(copySuccessModalEl);
+    const importModal = new bootstrap.Modal(importModalEl);
+
+    // Import button opens modal
+    topImportBtn.addEventListener('click', () => {
+        importTextarea.value = ''; // Clear textarea
+        importModal.show();
+    });
+
+    // Confirm import button processes the data
+    confirmImportBtn.addEventListener('click', async () => {
+        await importResultsFromTextarea();
+        importModal.hide();
+    });
+
     confirmUploadBtn.addEventListener('click', async () => {
         await clearCurrentData();
 
@@ -447,6 +465,7 @@ async function init() {
         uploadNewBtn.classList.add('d-none');
         topCopyBtn.classList.add('d-none');
         topDownloadBtn.classList.add('d-none');
+        topImportBtn.classList.add('d-none');
         uploadSection.classList.remove('d-none');
 
         // Clear the file input to allow selecting the same file again
@@ -464,6 +483,7 @@ async function init() {
         uploadNewBtn.classList.remove('d-none');
         topCopyBtn.classList.remove('d-none');
         topDownloadBtn.classList.remove('d-none');
+        topImportBtn.classList.remove('d-none');
         navigationTabs.classList.remove('d-none');
 
         // Check URL for initial view, or determine based on classification state
@@ -535,6 +555,7 @@ async function handleFileSelect(event) {
                 uploadNewBtn.classList.remove('d-none');
                 topCopyBtn.classList.remove('d-none');
                 topDownloadBtn.classList.remove('d-none');
+                topImportBtn.classList.remove('d-none');
                 navigationTabs.classList.remove('d-none');
 
                 // Save all images to IndexedDB
@@ -1035,6 +1056,119 @@ async function downloadResults() {
     } catch (error) {
         console.error('Failed to download results:', error);
         alert('Помилка завантаження результатів. Спробуйте ще раз.');
+    }
+}
+
+async function importResultsFromTextarea() {
+    try {
+        // Read textarea content
+        const textareaContent = importTextarea.value;
+
+        if (!textareaContent || textareaContent.trim() === '') {
+            alert('Поле порожнє. Вставте таблицю результатів перед імпортом.');
+            return;
+        }
+
+        // Parse TSV data (Tab-Separated Values)
+        const lines = textareaContent.trim().split('\n');
+
+        if (lines.length < 2) {
+            alert('Некоректний формат даних. Таблиця повинна містити заголовки та хоча б один рядок даних.');
+            return;
+        }
+
+        // Skip header row and parse data rows
+        const importData = [];
+        for (let i = 1; i < lines.length; i++) {
+            const columns = lines[i].split('\t');
+
+            if (columns.length >= 3) {
+                const ticId = columns[0].trim();
+                const classification = columns[2].trim();
+
+                if (ticId && classification) {
+                    importData.push({ ticId, classification });
+                }
+            }
+        }
+
+        if (importData.length === 0) {
+            alert('Не знайдено даних для імпорту. Переконайтеся, що таблиця містить номери TIC та класифікації.');
+            return;
+        }
+
+        // Get all stars from database to validate
+        const tx = db.transaction('stars', 'readonly');
+        const starsStore = tx.objectStore('stars');
+        const allStars = await starsStore.getAll();
+
+        // Create a set of valid ticIds for quick lookup
+        const validTicIds = new Set(allStars.map(star => star.ticId));
+
+        // Validate that all ticIds from clipboard exist in our database
+        const invalidTicIds = [];
+
+        for (const item of importData) {
+            if (!validTicIds.has(item.ticId)) {
+                invalidTicIds.push(item.ticId);
+            }
+        }
+
+        if (invalidTicIds.length > 0) {
+            alert(
+                `Помилка імпорту!\n\n` +
+                `Знайдено ${invalidTicIds.length} номерів TIC, які відсутні в базі даних:\n` +
+                `${invalidTicIds.slice(0, 10).join(', ')}${invalidTicIds.length > 10 ? '...' : ''}\n\n` +
+                `Переконайтеся, що ви імпортуєте таблицю для правильного набору зірок.`
+            );
+            return;
+        }
+
+        // Confirm import
+        const confirmImport = confirm(
+            `Імпортувати ${importData.length} класифікацій?\n\n` +
+            `Всі інші зірки будуть класифіковані як "Ні".`
+        );
+
+        if (!confirmImport) {
+            return;
+        }
+
+        // Create a map of ticId to classification for quick lookup
+        const ticIdToClassification = new Map();
+        for (const item of importData) {
+            ticIdToClassification.set(item.ticId, item.classification);
+        }
+
+        // Perform update in transaction
+        const updateTx = db.transaction('stars', 'readwrite');
+        const updateStarsStore = updateTx.objectStore('stars');
+
+        // Update all stars: set from imported data or set to "Ні"
+        for (const star of allStars) {
+            if (ticIdToClassification.has(star.ticId)) {
+                star.classification = ticIdToClassification.get(star.ticId);
+            } else {
+                star.classification = 'Ні';
+            }
+            await updateStarsStore.put(star);
+        }
+
+        await updateTx.done;
+
+        // Reload state and update UI
+        await loadState();
+        await saveState();
+
+        // Refresh the results table
+        renderFinalResultsTable();
+        renderPaginationControls();
+
+        alert(`Імпорт завершено!\n\nОновлено ${importData.length} класифікацій.\nРешта зірок класифіковано як "Ні".`);
+
+    } catch (error) {
+        console.error('Failed to import from textarea:', error);
+        alert('Помилка імпорту. Спробуйте ще раз.\n\nДеталі: ' + error.message);
     }
 }
 
