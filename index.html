@@ -14,14 +14,23 @@
     <!-- Header Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
-            <div class="navbar-brand mb-0">
-                <span class="navbar-title">XLSky</span>
+            <span class="navbar-brand mb-0">XLSky</span>
+            <div class="collapse navbar-collapse" id="navigation-tabs">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="classifier-tab" href="#" data-view="classifier">Класифікатор</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="results-tab" href="#" data-view="results">Таблиця результатів</a>
+                    </li>
+                </ul>
             </div>
         </div>
     </nav>
 
     <div class="container text-center mt-3">
         <main>
+
             <div class="mb-2">
                 <button class="btn btn-warning upload-new-btn d-none">Завантажити новий файл</button>
                 <button id="top-download-btn" class="btn btn-info d-none">Скачати результати в XLS</button>
@@ -79,22 +88,28 @@
             </section>
 
             <section id="viewer-section" class="d-none">
-                <p id="status-text" class="mb-2"></p>
-                <div id="card-container" class="mx-auto mb-2">
-                    <img id="display-image" src="" alt="display-image" class="img-fluid">
+                <div id="classification-content">
+                    <p id="status-text" class="mb-2"></p>
+                    <div id="card-container" class="mx-auto mb-2">
+                        <img id="display-image" src="" alt="display-image" class="img-fluid">
+                    </div>
+                    <p class="mb-2">Чи зоря змінна?</p>
+                    <div class="classification-buttons d-flex justify-content-center gap-2 mb-2">
+                        <button id="no-btn" class="btn btn-danger">Ні<br>&larr;</button>
+                        <button id="problematic-btn" class="btn btn-secondary">Проблематично визначити<br>&darr;</button>
+                        <button id="yes-btn" class="btn btn-success">Так<br>&rarr;</button>
+                    </div>
+                    <button id="back-btn" class="btn btn-outline-secondary">Повернути попередній графік</button>
                 </div>
-                <p class="mb-2">Чи зоря змінна?</p>
-                <div class="classification-buttons d-flex justify-content-center gap-2 mb-2">
-                    <button id="no-btn" class="btn btn-danger">Ні<br>&larr;</button>
-                    <button id="problematic-btn" class="btn btn-secondary">Проблематично визначити<br>&darr;</button>
-                    <button id="yes-btn" class="btn btn-success">Так<br>&rarr;</button>
+                <div id="all-classified-message" class="d-none">
+                    <div class="alert alert-success" role="alert">
+                        <h4 class="alert-heading">Всі зображення класифіковано!</h4>
+                        <p>Ви завершили класифікацію всіх зображень. Перейдіть до вкладки "Таблиця результатів", щоб переглянути та експортувати ваші результати.</p>
+                    </div>
                 </div>
-                <button id="back-btn" class="btn btn-outline-secondary">Повернути попередній графік</button>
             </section>
 
             <section id="results-section" class="d-none">
-                <p id="completion-message" class="lead">Всі зображення класифіковано!</p>
-
                 <div class="d-flex justify-content-start my-3">
                     <div class="me-3">
                         <label for="rows-per-page-select" class="form-label">Показувати:</label>

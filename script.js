@@ -12,6 +12,7 @@ let currentPage = 1;
 let rowsPerPage = 10;
 let currentClassificationImageUrl = null;
 let saveStateTimeout = null;
+let currentView = 'classifier'; // 'classifier' or 'results'
 
 // DOM Element References
 const zipInput = document.getElementById('zip-input');
@@ -22,6 +23,11 @@ const displayImage = document.getElementById('display-image');
 const uploadSection = document.getElementById('upload-section');
 const viewerSection = document.getElementById('viewer-section');
 const resultsSection = document.getElementById('results-section');
+const navigationTabs = document.getElementById('navigation-tabs');
+const classifierTab = document.getElementById('classifier-tab');
+const resultsTab = document.getElementById('results-tab');
+const classificationContent = document.getElementById('classification-content');
+const allClassifiedMessage = document.getElementById('all-classified-message');
 const yesBtn = document.getElementById('yes-btn');
 const problematicBtn = document.getElementById('problematic-btn');
 const noBtn = document.getElementById('no-btn');
@@ -356,19 +362,104 @@ rowsPerPageSelect.addEventListener('change', () => {
     renderPaginationControls();
 });
 
+// Navigation tab listeners
+classifierTab.addEventListener('click', (e) => {
+    e.preventDefault();
+    switchView('classifier');
+    updateURL('classifier');
+});
+
+resultsTab.addEventListener('click', (e) => {
+    e.preventDefault();
+    switchView('results');
+    updateURL('results');
+});
+
+// Handle browser back/forward buttons
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.view) {
+        switchView(event.state.view);
+    } else if (classificationImages.length > 0) {
+        // Default to classifier view if data is loaded
+        switchView('classifier');
+    }
+});
+
+function updateURL(view) {
+    const url = new URL(window.location);
+    if (view === 'classifier') {
+        url.searchParams.set('view', 'classificator');
+    } else {
+        url.searchParams.set('view', view);
+    }
+    window.history.pushState({ view }, '', url);
+}
+
+function getViewFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view');
+    // Support both 'classificator' and 'classifier' in URL
+    if (viewParam === 'classificator' || viewParam === 'classifier') {
+        return 'classifier';
+    }
+    return viewParam;
+}
+
+function getDefaultView() {
+    // If no view in URL, determine default based on classification state
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('view')) {
+        // Check if all images are classified
+        if (currentClassificatonImageIndex >= classificationImages.length && classificationImages.length > 0) {
+            return 'results';
+        }
+        return 'classifier';
+    }
+    return getViewFromURL();
+}
+
+function switchView(view) {
+    currentView = view;
+
+    if (view === 'classifier') {
+        classifierTab.classList.add('active');
+        resultsTab.classList.remove('active');
+        viewerSection.classList.remove('d-none');
+        resultsSection.classList.add('d-none');
+
+        // Show appropriate content in classifier view
+        if (currentClassificatonImageIndex < classificationImages.length) {
+            classificationContent.classList.remove('d-none');
+            allClassifiedMessage.classList.add('d-none');
+            displayCurrentClassificationImage();
+        } else {
+            classificationContent.classList.add('d-none');
+            allClassifiedMessage.classList.remove('d-none');
+        }
+    } else if (view === 'results') {
+        classifierTab.classList.remove('active');
+        resultsTab.classList.add('active');
+        viewerSection.classList.add('d-none');
+        resultsSection.classList.remove('d-none');
+        renderFinalResultsTable();
+        renderPaginationControls();
+    }
+}
+
 async function init() {
     confirmationModal = new bootstrap.Modal(confirmationModalEl);
     copySuccessModal = new bootstrap.Modal(copySuccessModalEl);
     confirmUploadBtn.addEventListener('click', async () => {
         await clearCurrentData();
-        
+
         resultsSection.classList.add('d-none');
         viewerSection.classList.add('d-none');
+        navigationTabs.classList.add('d-none');
         uploadNewBtn.classList.add('d-none');
         topCopyBtn.classList.add('d-none');
         topDownloadBtn.classList.add('d-none');
         uploadSection.classList.remove('d-none');
-        
+
         // Clear the file input to allow selecting the same file again
         zipInput.value = '';
 
@@ -376,7 +467,7 @@ async function init() {
     });
 
     db = await openDB();
-    
+
     // Try to restore state from IndexedDB
     const stateRestored = await loadState();
     if (stateRestored) {
@@ -384,14 +475,12 @@ async function init() {
         uploadNewBtn.classList.remove('d-none');
         topCopyBtn.classList.remove('d-none');
         topDownloadBtn.classList.remove('d-none');
+        navigationTabs.classList.remove('d-none');
 
-        if (currentClassificatonImageIndex < classificationImages.length) {
-            viewerSection.classList.remove('d-none');
-            displayCurrentClassificationImage();
-        } else {
-            resultsSection.classList.remove('d-none');
-            showCompletionScreen();
-        }
+        // Check URL for initial view, or determine based on classification state
+        const initialView = getDefaultView();
+        switchView(initialView);
+        updateURL(initialView);
     } else {
         uploadSection.classList.remove('d-none');
     }
@@ -457,6 +546,7 @@ async function handleFileSelect(event) {
                 uploadNewBtn.classList.remove('d-none');
                 topCopyBtn.classList.remove('d-none');
                 topDownloadBtn.classList.remove('d-none');
+                navigationTabs.classList.remove('d-none');
 
                 // Save all images to IndexedDB
                 await saveAllImagesToDB(zipImageEntries);
@@ -465,19 +555,11 @@ async function handleFileSelect(event) {
                 const stateRestored = await loadState();
                 await saveState();
 
-                if (stateRestored && currentClassificatonImageIndex < classificationImages.length) {
-                    // Continue from where user left off
-                    viewerSection.classList.remove('d-none');
-                    displayCurrentClassificationImage();
-                } else if (stateRestored && currentClassificatonImageIndex >= classificationImages.length) {
-                    // User had completed classification
-                    showCompletionScreen();
-                } else {
-                    // Start fresh
-                    viewerSection.classList.remove('d-none');
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    displayCurrentClassificationImage();
-                }
+                // Check URL for initial view, or determine based on classification state
+                await new Promise(resolve => setTimeout(resolve, 500));
+                const initialView = getDefaultView();
+                switchView(initialView);
+                updateURL(initialView);
             }
         } else {
             statusText.textContent = 'У ZIP-файлі не знайдено зображень PNG на першому рівні.';
@@ -530,7 +612,9 @@ async function displayCurrentClassificationImage() {
             statusText.textContent = `Помилка завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length}`;
         }
     } else {
-        showCompletionScreen();
+        // All images classified, show completion message in classifier view
+        classificationContent.classList.add('d-none');
+        allClassifiedMessage.classList.remove('d-none');
     }
     backBtn.disabled = currentClassificatonImageIndex === 0;
 }
@@ -604,16 +688,15 @@ async function goBack() {
             console.error('Failed to update classification:', error);
         }
 
+        // If we were showing the completion message, hide it and show classification content
+        if (allClassifiedMessage.classList.contains('d-none') === false) {
+            allClassifiedMessage.classList.add('d-none');
+            classificationContent.classList.remove('d-none');
+        }
+
         await saveState();
         displayCurrentClassificationImage();
     }
-}
-
-function showCompletionScreen() {
-    viewerSection.classList.add('d-none');
-    resultsSection.classList.remove('d-none');
-    renderFinalResultsTable();
-    renderPaginationControls();
 }
 
 async function renderFinalResultsTable() {
@@ -670,7 +753,7 @@ async function renderFinalResultsTable() {
 async function createResultRow(result) {
     const row = document.createElement('tr');
 
-    const classificationOptions = ['Так', 'Ні', 'Проблематично визначити'];
+    const classificationOptions = ['', 'Так', 'Ні', 'Проблематично визначити'];
     const select = document.createElement('select');
     select.classList.add('form-select');
     select.dataset.fileName = result.filename;
@@ -678,29 +761,33 @@ async function createResultRow(result) {
     classificationOptions.forEach(option => {
         const optionElement = document.createElement('option');
         optionElement.value = option;
-        optionElement.innerText = option;
-        if (option === result.classification) {
+        optionElement.innerText = option || '-';
+        if (option === (result.classification || '')) {
             optionElement.selected = true;
         }
         select.appendChild(optionElement);
     });
 
     select.addEventListener('change', (event) => {
-        const newClassification = event.target.value;
+        const newClassification = event.target.value || null;
         const fileName = event.target.dataset.fileName;
 
         // Immediately update the cell background color
         const cell = event.target.closest('td');
         const classificationClass = getClassificationClass(newClassification);
         cell.className = '';
-        cell.classList.add(classificationClass);
+        if (classificationClass) {
+            cell.classList.add(classificationClass);
+        }
 
         updateClassification(fileName, newClassification);
     });
 
     const classificationClass = getClassificationClass(result.classification);
     const classificationCell = document.createElement('td');
-    classificationCell.classList.add(classificationClass);
+    if (classificationClass) {
+        classificationCell.classList.add(classificationClass);
+    }
     classificationCell.appendChild(select);
 
     const previewCell = document.createElement('td');
@@ -761,15 +848,17 @@ function updateResultRow(row, result) {
 
     // Update classification
     const select = cells[1].querySelector('select');
-    if (select.value !== result.classification) {
-        select.value = result.classification;
+    if (select.value !== (result.classification || '')) {
+        select.value = result.classification || '';
         select.dataset.fileName = result.filename;
     }
 
     // Always update classification class to ensure it's correct
     const classificationClass = getClassificationClass(result.classification);
     cells[1].className = '';
-    cells[1].classList.add(classificationClass);
+    if (classificationClass) {
+        cells[1].classList.add(classificationClass);
+    }
     
     // Update star ID and link
     const link = cells[2].querySelector('a');
