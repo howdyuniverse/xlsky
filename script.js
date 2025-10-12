@@ -5,9 +5,10 @@ let confirmationModal;
 let copySuccessModal;
 
 // State Management
-let classificationImages = []; // Array of fileNames for classification
+let classificationImages = []; // Array of fileNames for unclassified images only
 let currentClassificatonImageIndex = 0;
 let totalStarsCount = 0; // Total number of stars in database for pagination
+let classifiedCount = 0; // Number of classified images
 let currentPage = 1;
 let rowsPerPage = 10;
 let currentClassificationImageUrl = null;
@@ -145,10 +146,6 @@ async function saveState() {
     // Save pagination settings
     await appState.put({ rowsPerPage }, 'pagination');
 
-    // Save current classification state
-    const classificationCurrentFileName = currentClassificatonImageIndex < classificationImages.length ? classificationImages[currentClassificatonImageIndex] : null;
-    await appState.put({ classificationCurrentFileName }, 'classification');
-
     await tx.done;
 }
 
@@ -239,20 +236,18 @@ async function loadState() {
         const allStars = await starsStore.getAll();
 
         if (allStars && allStars.length > 0) {
-            // Build classificationImages from stars (just fileNames)
-            classificationImages = allStars.map(star => star.fileName);
             totalStarsCount = allStars.length;
 
-            // Load current position
-            const classificationState = await db.get('appState', 'classification');
-            if (classificationState && classificationState.classificationCurrentFileName) {
-                currentClassificatonImageIndex = classificationImages.findIndex(f => f === classificationState.classificationCurrentFileName);
-                if (currentClassificatonImageIndex === -1) currentClassificatonImageIndex = 0;
-            } else {
-                // Count classified stars
-                const classifiedCount = allStars.filter(star => star.classification !== null).length;
-                currentClassificatonImageIndex = classifiedCount;
-            }
+            // Build classificationImages from ONLY unclassified stars
+            // This gets rebuilt on every page load with current unclassified images
+            const unclassifiedStars = allStars.filter(star => star.classification === null);
+            classificationImages = unclassifiedStars.map(star => star.fileName);
+
+            // Count classified stars
+            classifiedCount = allStars.filter(star => star.classification !== null).length;
+
+            // Always start from the beginning after page reload
+            currentClassificatonImageIndex = 0;
 
             return true;
         }
@@ -591,7 +586,7 @@ async function displayCurrentClassificationImage() {
             }
 
             const starId = star.ticId;
-            statusText.textContent = `Завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length} | TIC ${starId}`;
+            statusText.textContent = `Класифіковано ${classifiedCount} зображень з ${totalStarsCount} | TIC ${starId}`;
 
             // Get image from IndexedDB
             const blob = await getImageBlobFromDB(fileName);
@@ -599,7 +594,7 @@ async function displayCurrentClassificationImage() {
             if (blob) {
                 currentClassificationImageUrl = URL.createObjectURL(blob);
                 displayImage.src = currentClassificationImageUrl;
-                statusText.textContent = `Зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length} | TIC ${starId}`;
+                statusText.textContent = `Класифіковано ${classifiedCount} зображень з ${totalStarsCount} | TIC ${starId}`;
             } else {
                 const errorMsg = `Image not found in database: ${fileName}`;
                 console.error(errorMsg);
@@ -609,13 +604,14 @@ async function displayCurrentClassificationImage() {
             const errorMsg = `Error loading image: ${error.message}`;
             console.error(errorMsg, error);
             alert(errorMsg);
-            statusText.textContent = `Помилка завантаження зображення ${currentClassificatonImageIndex + 1} з ${classificationImages.length}`;
+            statusText.textContent = `Помилка завантаження зображення`;
         }
     } else {
         // All images classified, show completion message in classifier view
         classificationContent.classList.add('d-none');
         allClassifiedMessage.classList.remove('d-none');
     }
+    // Enable back button only if we're not at the start
     backBtn.disabled = currentClassificatonImageIndex === 0;
 }
 
@@ -660,6 +656,12 @@ async function classify(classification) {
 
         star.classification = classification;
         await db.put('stars', star);
+
+        // Update counts
+        classifiedCount++;
+
+        // Move to next image
+        currentClassificatonImageIndex++;
     } catch (error) {
         const errorMsg = `Failed to save classification: ${error.message}`;
         console.error(errorMsg, error);
@@ -667,25 +669,27 @@ async function classify(classification) {
         return;
     }
 
-    currentClassificatonImageIndex++;
     await saveState();
     displayCurrentClassificationImage();
 }
 
 async function goBack() {
-    if (currentClassificatonImageIndex > 0) {
+    // We can only go back if we're not at the start
+    if (currentClassificatonImageIndex === 0) return;
+
+    try {
+        // Move back one image
         currentClassificatonImageIndex--;
         const filename = classificationImages[currentClassificatonImageIndex];
 
-        // Set classification back to null in stars store
-        try {
-            const star = await db.get('stars', filename);
-            if (star) {
-                star.classification = null;
-                await db.put('stars', star);
-            }
-        } catch (error) {
-            console.error('Failed to update classification:', error);
+        // Unclassify the current image
+        const star = await db.get('stars', filename);
+        if (star && star.classification !== null) {
+            star.classification = null;
+            await db.put('stars', star);
+
+            // Update counts
+            classifiedCount--;
         }
 
         // If we were showing the completion message, hide it and show classification content
@@ -696,6 +700,8 @@ async function goBack() {
 
         await saveState();
         displayCurrentClassificationImage();
+    } catch (error) {
+        console.error('Failed to go back:', error);
     }
 }
 
@@ -892,8 +898,27 @@ async function updateClassification(fileName, newClassification) {
     try {
         const star = await db.get('stars', fileName);
         if (star) {
+            const previousClassification = star.classification;
             star.classification = newClassification;
             await db.put('stars', star);
+
+            // Only reload if classification changed to/from null
+            if (previousClassification === null || newClassification === null) {
+                // Reload classificationImages from storage
+                const tx = db.transaction('stars', 'readonly');
+                const starsStore = tx.objectStore('stars');
+                const allStars = await starsStore.getAll();
+
+                // Rebuild classificationImages with unclassified stars
+                const unclassifiedStars = allStars.filter(star => star.classification === null);
+                classificationImages = unclassifiedStars.map(star => star.fileName);
+
+                // Update classified count
+                classifiedCount = allStars.filter(star => star.classification !== null).length;
+
+                // Reset index to start
+                currentClassificatonImageIndex = 0;
+            }
         } else {
             const errorMsg = `Star not found in store: ${fileName}`;
             console.error(errorMsg);
