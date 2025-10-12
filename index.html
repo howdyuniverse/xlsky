@@ -35,6 +35,7 @@
                 <button class="btn btn-warning upload-new-btn d-none">Завантажити новий файл</button>
                 <button id="top-download-btn" class="btn btn-info d-none">Скачати результати в XLS</button>
                 <button id="top-copy-btn" class="btn btn-success d-none">Копіювати результати в буфер обміну</button>
+                <button id="top-import-btn" class="btn btn-primary d-none">Імпортувати таблицю результатів</button>
             </div>
 
             <section id="upload-section">
@@ -120,6 +121,16 @@
                             <option value="100">100</option>
                         </select>
                     </div>
+                    <div class="me-3">
+                        <label for="classification-filter-select" class="form-label">Фільтр по класифікації:</label>
+                        <select id="classification-filter-select" class="form-select-sm">
+                            <option value="all" selected>Всі</option>
+                            <option value="Так">Так</option>
+                            <option value="Ні">Ні</option>
+                            <option value="Проблематично визначити">Проблематично визначити</option>
+                            <option value="null">Не класифіковано</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="table-responsive">
                     <table id="results-table" class="table table-striped table-bordered">
@@ -193,6 +204,34 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Зрозуміло</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div class="modal fade" id="importModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title">Імпорт таблиці результатів</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-3">Вставте дані з Google таблиці нижче:</p>
+            <ol class="mb-3">
+              <li>Виділіть всю таблицю в Google Sheets (включно з заголовками)</li>
+              <li>Скопіюйте дані (<kbd>Ctrl+C</kbd> або <kbd>Cmd+C</kbd>)</li>
+              <li>Вставте в поле нижче (<kbd>Ctrl+V</kbd> або <kbd>Cmd+V</kbd>)</li>
+            </ol>
+            <textarea id="import-textarea" class="form-control" rows="10" placeholder="Вставте таблицю тут...&#10;&#10;Приклад:&#10;Номер TIC&#9;Відкривач&#9;Чи зоря змінна ?&#10;123456&#9;Іван&#9;Так&#10;789012&#9;Марія&#9;Ні"></textarea>
+            <div class="alert alert-warning mt-3 mb-0" role="alert">
+              <strong>⚠️ Увага!</strong> Всі зірки, які відсутні в таблиці, будуть автоматично класифіковані як "Ні".
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+            <button type="button" class="btn btn-primary" id="confirmImportBtn">Імпортувати</button>
           </div>
         </div>
       </div>
