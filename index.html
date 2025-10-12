@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Класифікатор змінних зірок</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" integrity="sha256-fx038NkLY4U1TCrBDiu5FWPEa9eiZu01EiLryshJbCo=" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/idb@8.0.3/build/umd.min.js" integrity="sha256-WtuXFIosd0QA9LELWLublk6NIBdz6jlra33QdhaionA=" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.3.0/index.js" integrity="sha512-VPBAZRHzUvbArag6OZV13Tw5Ci4QOKRUdDPZFQwfYzHsM6PWWdDaa7e84yGsvM37BUucjtI4sR/p1Zg9h8Ixsg==" crossorigin="anonymous" referrerpolicy="no-referrer" type="module"></script>
 </head>
 <body>
     <!-- Header Bar -->
@@ -31,11 +33,30 @@
     <div class="container text-center mt-3">
         <main>
 
-            <div class="mb-2">
-                <button class="btn btn-warning upload-new-btn d-none">Завантажити новий файл</button>
-                <button id="top-download-btn" class="btn btn-info d-none">Скачати результати в XLS</button>
-                <button id="top-copy-btn" class="btn btn-success d-none">Копіювати результати в буфер обміну</button>
-                <button id="top-import-btn" class="btn btn-primary d-none">Імпортувати таблицю результатів</button>
+            <div class="toolbar-container mb-3">
+                <div class="toolbar-row">
+                    <div class="toolbar-group">
+                        <button class="btn btn-warning upload-new-btn d-none">
+                            <i class="bi bi-upload"></i> Завантажити новий файл
+                        </button>
+                    </div>
+                    <div class="toolbar-group">
+                        <button id="top-download-btn" class="btn btn-info d-none">
+                            <i class="bi bi-download"></i> Скачати результати в XLS
+                        </button>
+                        <button id="top-copy-btn" class="btn btn-success d-none">
+                            <i class="bi bi-clipboard"></i> Копіювати результати
+                        </button>
+                        <button id="top-import-btn" class="btn btn-primary d-none">
+                            <i class="bi bi-file-earmark-arrow-up"></i> Імпортувати таблицю
+                        </button>
+                    </div>
+                    <div class="toolbar-group">
+                        <button id="top-find-info-btn" class="btn btn-secondary d-none">
+                            🪄 Знайти інформацію в Simbad
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <section id="upload-section">
@@ -137,8 +158,9 @@
                         <thead>
                             <tr>
                                 <th>Preview</th>
-                                <th>Classification</th>
-                                <th>TIC</th>
+                                <th>Номер TIC</th>
+                                <th>Чи зоря змінна ?</th>
+                                <th>Відома інформація про цю зорю в SIMBAD, AAVSO</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -154,7 +176,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha256-qlPVgvl+tZTCpcxYJFdHB/m6mDe84wRr+l81VoYPTgQ=" crossorigin="anonymous"></script>
-    <script src="script.js" defer></script>
+    <script src="script.js" type="module"></script>
 
     <!-- Confirmation Modal -->
     <div class="modal fade" id="confirmationModal" tabindex="-1">
@@ -242,6 +264,32 @@
       <span class="close-modal">&times;</span>
       <img class="modal-content-image" id="modalImage">
       <div id="caption" class="modal-caption">Натисніть на × або клавішу Esc, щоб закрити</div>
+    </div>
+
+    <!-- Variability Details Modal -->
+    <div class="modal fade" id="variabilityModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Детальна інформація про змінність зірки</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body" id="variabilityModalBody">
+            <!-- Content will be populated by JavaScript -->
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрити</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Завантаження інформації про зірки...</div>
+      </div>
     </div>
 </body>
 </html>
