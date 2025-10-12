@@ -14,6 +14,8 @@ let rowsPerPage = 10;
 let currentClassificationImageUrl = null;
 let saveStateTimeout = null;
 let currentView = 'classifier'; // 'classifier' or 'results'
+let currentFilter = 'all'; // Current classification filter
+let filteredStarsCount = 0; // Count of stars after applying filter
 
 // DOM Element References
 const zipInput = document.getElementById('zip-input');
@@ -40,6 +42,7 @@ const topImportBtn = document.getElementById('top-import-btn');
 const resultsTableBody = document.querySelector('#results-table tbody');
 const paginationControls = document.getElementById('pagination-controls');
 const rowsPerPageSelect = document.getElementById('rows-per-page-select');
+const classificationFilterSelect = document.getElementById('classification-filter-select');
 const confirmationModalEl = document.getElementById('confirmationModal');
 const confirmUploadBtn = document.getElementById('confirmUploadBtn');
 const copySuccessModalEl = document.getElementById('copySuccessModal');
@@ -235,6 +238,7 @@ async function loadState() {
 
         if (allStars && allStars.length > 0) {
             totalStarsCount = allStars.length;
+            filteredStarsCount = allStars.length; // Initialize for pagination
 
             // Build classificationImages from ONLY unclassified stars
             // This gets rebuilt on every page load with current unclassified images
@@ -352,6 +356,13 @@ rowsPerPageSelect.addEventListener('change', () => {
     currentPage = 1;
     debouncedSaveState();
     renderFinalResultsTable();
+    renderPaginationControls();
+});
+
+classificationFilterSelect.addEventListener('change', async () => {
+    currentFilter = classificationFilterSelect.value;
+    currentPage = 1; // Reset to first page when filter changes
+    await renderFinalResultsTable();
     renderPaginationControls();
 });
 
@@ -682,6 +693,11 @@ async function classify(classification) {
         if (currentClassificatonImageIndex >= classificationImages.length) {
             // All unclassified images have been classified, redirect to results
             await saveState();
+
+            // Reset filter to default (all)
+            currentFilter = 'all';
+            classificationFilterSelect.value = 'all';
+
             switchView('results');
             updateURL('results');
             return;
@@ -730,33 +746,35 @@ async function goBack() {
 }
 
 async function renderFinalResultsTable() {
-    const offset = (currentPage - 1) * rowsPerPage;
-
-    // Use cursor.advance() to efficiently paginate through stars
+    // Fetch all stars from database
     const tx = db.transaction('stars', 'readonly');
     const starsStore = tx.objectStore('stars');
-    const paginatedResults = [];
+    const allStars = await starsStore.getAll();
 
-    let cursor = await starsStore.openCursor();
-
-    // Advance to the offset position
-    if (cursor && offset > 0) {
-        cursor = await cursor.advance(offset);
+    // Apply filter
+    let filteredStars = allStars;
+    if (currentFilter !== 'all') {
+        if (currentFilter === 'null') {
+            // Filter for unclassified stars (null)
+            filteredStars = allStars.filter(star => star.classification === null);
+        } else {
+            // Filter for specific classification
+            filteredStars = allStars.filter(star => star.classification === currentFilter);
+        }
     }
 
-    // Collect rowsPerPage results
-    let count = 0;
-    while (cursor && count < rowsPerPage) {
-        const star = cursor.value;
-        paginatedResults.push({
-            starId: star.ticId,
-            filename: star.fileName,
-            classification: star.classification,
-            imageUrl: null
-        });
-        count++;
-        cursor = await cursor.continue();
-    }
+    // Calculate pagination based on filtered results
+    filteredStarsCount = filteredStars.length;
+    const offset = (currentPage - 1) * rowsPerPage;
+    const paginatedStars = filteredStars.slice(offset, offset + rowsPerPage);
+
+    // Convert to results format
+    const paginatedResults = paginatedStars.map(star => ({
+        starId: star.ticId,
+        filename: star.fileName,
+        classification: star.classification,
+        imageUrl: null
+    }));
 
     // Render the results
     const currentRows = resultsTableBody.children.length;
@@ -959,25 +977,19 @@ async function updateClassification(fileName, newClassification) {
 }
 
 function renderPaginationControls() {
-    const pageCount = Math.ceil(totalStarsCount / rowsPerPage);
-    const currentChildren = paginationControls.children.length;
-    
-    // Only rebuild if page count changed
-    if (currentChildren !== pageCount) {
-        paginationControls.innerHTML = '';
-        
+    // Use filtered count instead of total count
+    const pageCount = Math.ceil(filteredStarsCount / rowsPerPage);
+
+    // Always rebuild pagination to ensure correct number of buttons
+    paginationControls.innerHTML = '';
+
+    if (pageCount > 0) {
         const fragment = document.createDocumentFragment();
         for (let i = 1; i <= pageCount; i++) {
             const li = createPaginationItem(i);
             fragment.appendChild(li);
         }
         paginationControls.appendChild(fragment);
-    } else {
-        // Update existing pagination items
-        Array.from(paginationControls.children).forEach((li, index) => {
-            const pageNum = index + 1;
-            li.classList.toggle('active', pageNum === currentPage);
-        });
     }
 }
 
