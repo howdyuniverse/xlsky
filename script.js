@@ -122,12 +122,6 @@ async function openDB() {
                         }
                     }
 
-                    // Migrate current position
-                    const currentFileName = v1_appState.imageFiles && v1_appState.currentIndex < v1_appState.imageFiles.length
-                        ? v1_appState.imageFiles[v1_appState.currentIndex]?.name.split('/').pop()
-                        : null;
-                    appStateStore.put({ classificationCurrentFileName: currentFileName }, 'classification');
-
                     console.log('App state migrated.');
                 }
 
