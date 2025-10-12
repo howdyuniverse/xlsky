@@ -1,5 +1,7 @@
+import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.0.0/index.js';
+
 const dbName = 'ImageClassifierDB';
-const dbVersion = 2;
+const dbVersion = 3;
 let db;
 let confirmationModal;
 let copySuccessModal;
@@ -134,6 +136,19 @@ async function openDB() {
                 }
 
                 console.log('Migration complete! V1 data preserved in "state" store for rollback.');
+            }
+
+            // V3 schema - add variability data stores
+            if (oldVersion < 3) {
+                console.log('Adding V3 stores for variability data...');
+
+                // Store for all variability matches (array of match objects)
+                db.createObjectStore('variabilityData', { keyPath: 'fileName' });
+
+                // Store for first match only (for display in results table)
+                db.createObjectStore('variabilityFirstMatch', { keyPath: 'fileName' });
+
+                console.log('V3 stores created.');
             }
         },
     });
@@ -291,6 +306,10 @@ async function clearCurrentData() {
         await db.clear('images');
         await db.clear('stars');
         await db.clear('appState');
+
+        // Clear v3 stores
+        await db.clear('variabilityData');
+        await db.clear('variabilityFirstMatch');
 
         // Clear v1 store for clean slate
         await db.clear('state');
@@ -863,9 +882,9 @@ async function createResultRow(result) {
     link.innerText = result.starId;
     filenameCell.appendChild(link);
 
-    // New column for known information (empty for now)
+    // New column for known information
     const infoCell = document.createElement('td');
-    infoCell.innerText = '';
+    await loadVariabilityInfo(infoCell, result.filename);
 
     row.appendChild(previewCell);
     row.appendChild(filenameCell);
@@ -890,6 +909,50 @@ async function loadImageForPreview(imgElement, filename) {
     } catch (error) {
         console.error('Failed to load preview image:', error);
         imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2Y4ZDdkYSIvPgo8dGV4dCB4PSI1MCUiIHk9IjUwJSIgZHk9Ii4zZW0iIGZpbGw9IiM3MjE5MjEiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjEwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5Помилка</dGV4dD4KPHN2Zz4='; // error SVG
+    }
+}
+
+async function loadVariabilityInfo(cellElement, filename) {
+    try {
+        const firstMatchRecord = await db.get('variabilityFirstMatch', filename);
+
+        if (!firstMatchRecord || !firstMatchRecord.firstMatch) {
+            cellElement.innerText = '';
+            return;
+        }
+
+        const match = firstMatchRecord.firstMatch;
+        cellElement.innerHTML = formatVariabilityMatch(match);
+    } catch (error) {
+        console.error('Failed to load variability info:', error);
+        cellElement.innerText = '';
+    }
+}
+
+function formatVariabilityMatch(match) {
+    if (!match) return '';
+
+    switch (match.source) {
+        case 'otype':
+        case 'other_types':
+            return `<strong>${match.match_text}</strong>: ${match.description || ''}`;
+
+        case 'bibcode':
+            return `<strong>Bibcode:</strong> ${match.match_text}<br><em>${match.title || ''}</em>`;
+
+        case 'title':
+        case 'keywords':
+        case 'abstract':
+            const sourceLabel = match.source === 'title' ? 'Title' :
+                              match.source === 'keywords' ? 'Keywords' : 'Abstract';
+            let html = `<strong>${sourceLabel}:</strong> ${match.match_text}`;
+            if (match.context) {
+                html += `<br><small>${match.context}</small>`;
+            }
+            return html;
+
+        default:
+            return JSON.stringify(match);
     }
 }
 
@@ -936,9 +999,9 @@ function updateResultRow(row, result) {
         cells[2].classList.add(classificationClass);
     }
 
-    // Update info cell (empty for now)
+    // Update info cell with variability data
     if (cells[3]) {
-        cells[3].innerText = '';
+        loadVariabilityInfo(cells[3], result.filename);
     }
 }
 
@@ -1168,8 +1231,10 @@ async function importResultsFromTextarea() {
         }
 
         // Perform update in transaction
-        const updateTx = db.transaction('stars', 'readwrite');
+        const updateTx = db.transaction(['stars', 'variabilityData', 'variabilityFirstMatch'], 'readwrite');
         const updateStarsStore = updateTx.objectStore('stars');
+        const variabilityDataStore = updateTx.objectStore('variabilityData');
+        const variabilityFirstMatchStore = updateTx.objectStore('variabilityFirstMatch');
 
         // Update all stars: set from imported data or set to "Ні"
         for (const star of allStars) {
@@ -1179,6 +1244,14 @@ async function importResultsFromTextarea() {
                 star.classification = 'Ні';
             }
             await updateStarsStore.put(star);
+
+            // Clear variability data for this star
+            try {
+                await variabilityDataStore.delete(star.fileName);
+                await variabilityFirstMatchStore.delete(star.fileName);
+            } catch (e) {
+                // Ignore if entry doesn't exist
+            }
         }
 
         await updateTx.done;
@@ -1205,5 +1278,79 @@ function extractStarId(filename) {
 }
 
 async function findInformationAboutStars() {
-    console.log('findInformationAboutStars called');
+    try {
+        // Read all stars from database
+        const tx = db.transaction('stars', 'readonly');
+        const starsStore = tx.objectStore('stars');
+        const allStars = await starsStore.getAll();
+
+        // Filter only stars with classification "Так" or "Проблематично визначити"
+        const filteredStars = allStars.filter(star =>
+            star.classification === 'Так' || star.classification === 'Проблематично визначити'
+        );
+
+        if (filteredStars.length === 0) {
+            alert('Не знайдено зірок з класифікацією "Так" або "Проблематично визначити"');
+            return;
+        }
+
+        // Create array of TIC strings
+        const ticIds = filteredStars.map(star => `TIC ${star.ticId}`);
+
+        console.log('Calling checkStarsVariability with:', ticIds);
+
+        // Call the checkStarsVariability function
+        const result = await checkStarsVariability(ticIds);
+
+        console.log('checkStarsVariability result:', result);
+
+        // Save the results to IndexedDB
+        const saveTx = db.transaction(['variabilityData', 'variabilityFirstMatch'], 'readwrite');
+        const variabilityDataStore = saveTx.objectStore('variabilityData');
+        const variabilityFirstMatchStore = saveTx.objectStore('variabilityFirstMatch');
+
+        // Create a map of ticId to fileName for quick lookup
+        const ticIdToFileName = new Map();
+        for (const star of filteredStars) {
+            ticIdToFileName.set(`TIC ${star.ticId}`, star.fileName);
+        }
+
+        // Store the data
+        for (const [ticKey, matches] of Object.entries(result)) {
+            const fileName = ticIdToFileName.get(ticKey);
+            if (fileName) {
+                // Store all matches
+                await variabilityDataStore.put({
+                    fileName: fileName,
+                    matches: matches
+                });
+
+                // Store first match (or null if empty array)
+                await variabilityFirstMatchStore.put({
+                    fileName: fileName,
+                    firstMatch: matches.length > 0 ? matches[0] : null
+                });
+            }
+        }
+
+        await saveTx.done;
+
+        // Refresh the results table to show the new data
+        await renderFinalResultsTable();
+
+        alert('Інформацію про зірки успішно завантажено!');
+    } catch (error) {
+        console.error('Error in findInformationAboutStars:', error);
+
+        // Show user-friendly error message
+        let errorMessage = 'Помилка при перевірці інформації про зірки.';
+
+        if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('timeout')) {
+            errorMessage += '\n\nПроблема з мережею. Перевірте інтернет-з\'єднання та спробуйте ще раз.';
+        } else if (error.message) {
+            errorMessage += `\n\nДеталі: ${error.message}`;
+        }
+
+        alert(errorMessage);
+    }
 }
