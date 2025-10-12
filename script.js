@@ -662,6 +662,15 @@ async function classify(classification) {
 
         // Move to next image
         currentClassificatonImageIndex++;
+
+        // Check if all images are now classified
+        if (currentClassificatonImageIndex >= classificationImages.length) {
+            // All unclassified images have been classified, redirect to results
+            await saveState();
+            switchView('results');
+            updateURL('results');
+            return;
+        }
     } catch (error) {
         const errorMsg = `Failed to save classification: ${error.message}`;
         console.error(errorMsg, error);
