@@ -491,6 +491,33 @@ async function init() {
         importModal.show();
     });
 
+    // Strip whitespace on paste
+    importTextarea.addEventListener('paste', (e) => {
+        // Prevent default paste behavior
+        e.preventDefault();
+
+        // Get pasted text from clipboard
+        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+
+        // Strip leading and trailing whitespace
+        const strippedText = pastedText.trim();
+
+        // Insert the stripped text while preserving undo history
+        const start = importTextarea.selectionStart;
+        const end = importTextarea.selectionEnd;
+        const text = importTextarea.value;
+
+        // Replace selected text with stripped text
+        importTextarea.value = text.substring(0, start) + strippedText + text.substring(end);
+
+        // Set cursor position after inserted text
+        const newCursorPos = start + strippedText.length;
+        importTextarea.setSelectionRange(newCursorPos, newCursorPos);
+
+        // Trigger input event for proper change detection
+        importTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
     // Confirm import button processes the data
     confirmImportBtn.addEventListener('click', async () => {
         await importResultsFromTextarea();
