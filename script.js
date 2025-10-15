@@ -998,6 +998,38 @@ function formatVariabilityMatch(match) {
     }
 }
 
+function formatVariabilityMatchForExport(match, ticId) {
+    if (!match) return '';
+
+    const sourceLabel = getSourceLabel(match.source);
+    const matchText = match.match_text;
+
+    // Create HYPERLINK formula based on source type
+    let url = '';
+
+    switch (match.source) {
+        case 'otype':
+        case 'other_types':
+        case 'bibcode':
+        case 'title':
+            // For object types, bibcode, and title, link to SIMBAD star page
+            url = `https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=TIC+${ticId}`;
+            return `=HYPERLINK("${url}"; "${sourceLabel}: ${matchText}")`;
+
+        case 'keywords':
+        case 'abstract':
+            // For keywords and abstract, link to bibcode if available
+            if (match.bibcode) {
+                url = `https://simbad.cds.unistra.fr/simbad/sim-ref?bibcode=${encodeURIComponent(match.bibcode)}`;
+                return `=HYPERLINK("${url}"; "${sourceLabel}: ${matchText}")`;
+            }
+            return `${sourceLabel}: ${matchText}`;
+
+        default:
+            return `${sourceLabel}: ${matchText}`;
+    }
+}
+
 async function showVariabilityDetails(filename) {
     try {
         const variabilityRecord = await db.get('variabilityData', filename);
@@ -1252,7 +1284,7 @@ async function copyResultsToClipboard() {
             const summaryRecord = await variabilitySummaryStore.get(star.fileName);
             let variabilityInfo = '';
             if (summaryRecord && summaryRecord.firstMatch) {
-                variabilityInfo = formatVariabilityMatch(summaryRecord.firstMatch);
+                variabilityInfo = formatVariabilityMatchForExport(summaryRecord.firstMatch, star.ticId);
             }
 
             rows.push(`${star.ticId}\t\t${star.classification}\t\t${variabilityInfo}`);
@@ -1287,7 +1319,7 @@ async function downloadResults() {
             const summaryRecord = await variabilitySummaryStore.get(star.fileName);
             let variabilityInfo = '';
             if (summaryRecord && summaryRecord.firstMatch) {
-                variabilityInfo = formatVariabilityMatch(summaryRecord.firstMatch);
+                variabilityInfo = formatVariabilityMatchForExport(summaryRecord.firstMatch, star.ticId);
             }
 
             data.push({
