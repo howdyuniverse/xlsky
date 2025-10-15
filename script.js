@@ -1,4 +1,4 @@
-import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.3.0/index.js';
+import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.4.0/index.js';
 
 const dbName = 'ImageClassifierDB';
 const dbVersion = 3;
@@ -502,20 +502,8 @@ async function init() {
         // Strip leading and trailing whitespace
         const strippedText = pastedText.trim();
 
-        // Insert the stripped text while preserving undo history
-        const start = importTextarea.selectionStart;
-        const end = importTextarea.selectionEnd;
-        const text = importTextarea.value;
-
-        // Replace selected text with stripped text
-        importTextarea.value = text.substring(0, start) + strippedText + text.substring(end);
-
-        // Set cursor position after inserted text
-        const newCursorPos = start + strippedText.length;
-        importTextarea.setSelectionRange(newCursorPos, newCursorPos);
-
-        // Trigger input event for proper change detection
-        importTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        // Insert the stripped text
+        importTextarea.value = strippedText;
     });
 
     // Confirm import button processes the data
@@ -1476,8 +1464,8 @@ async function findInformationAboutStars() {
 
         console.log('Calling checkStarsVariability with:', ticIds);
 
-        // Call the checkStarsVariability function
-        const result = await checkStarsVariability(ticIds);
+        // Call the checkStarsVariability function with 30 second timeout
+        const result = await checkStarsVariability(ticIds, 30000);
 
         console.log('checkStarsVariability result:', result);
 
@@ -1529,7 +1517,9 @@ async function findInformationAboutStars() {
         // Show user-friendly error message
         let errorMessage = 'Помилка при перевірці інформації про зірки.';
 
-        if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('timeout')) {
+        if (error.message.includes('timeout') || error.name === 'TimeoutError') {
+            errorMessage = 'Сервіс SIMBAD наразі недоступний. Спробуйте пізніше.';
+        } else if (error.message.includes('fetch') || error.message.includes('network')) {
             errorMessage += '\n\nПроблема з мережею. Перевірте інтернет-з\'єднання та спробуйте ще раз.';
         } else if (error.message) {
             errorMessage += `\n\nДеталі: ${error.message}`;
