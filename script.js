@@ -1,4 +1,4 @@
-import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.3.0/index.js';
+import { checkStarsVariability } from 'https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.4.0/index.js';
 
 const dbName = 'ImageClassifierDB';
 const dbVersion = 3;
@@ -489,6 +489,21 @@ async function init() {
     topImportBtn.addEventListener('click', () => {
         importTextarea.value = ''; // Clear textarea
         importModal.show();
+    });
+
+    // Strip whitespace on paste
+    importTextarea.addEventListener('paste', (e) => {
+        // Prevent default paste behavior
+        e.preventDefault();
+
+        // Get pasted text from clipboard
+        const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+
+        // Strip leading and trailing whitespace
+        const strippedText = pastedText.trim();
+
+        // Insert the stripped text
+        importTextarea.value = strippedText;
     });
 
     // Confirm import button processes the data
@@ -983,6 +998,38 @@ function formatVariabilityMatch(match) {
     }
 }
 
+function formatVariabilityMatchForExport(match, ticId) {
+    if (!match) return '';
+
+    const sourceLabel = getSourceLabel(match.source);
+    const matchText = match.match_text;
+
+    // Create HYPERLINK formula based on source type
+    let url = '';
+
+    switch (match.source) {
+        case 'otype':
+        case 'other_types':
+        case 'bibcode':
+        case 'title':
+            // For object types, bibcode, and title, link to SIMBAD star page
+            url = `https://simbad.cds.unistra.fr/simbad/sim-basic?Ident=TIC+${ticId}`;
+            return `=HYPERLINK("${url}"; "${sourceLabel}: ${matchText}")`;
+
+        case 'keywords':
+        case 'abstract':
+            // For keywords and abstract, link to bibcode if available
+            if (match.bibcode) {
+                url = `https://simbad.cds.unistra.fr/simbad/sim-ref?bibcode=${encodeURIComponent(match.bibcode)}`;
+                return `=HYPERLINK("${url}"; "${sourceLabel}: ${matchText}")`;
+            }
+            return `${sourceLabel}: ${matchText}`;
+
+        default:
+            return `${sourceLabel}: ${matchText}`;
+    }
+}
+
 async function showVariabilityDetails(filename) {
     try {
         const variabilityRecord = await db.get('variabilityData', filename);
@@ -1237,7 +1284,7 @@ async function copyResultsToClipboard() {
             const summaryRecord = await variabilitySummaryStore.get(star.fileName);
             let variabilityInfo = '';
             if (summaryRecord && summaryRecord.firstMatch) {
-                variabilityInfo = formatVariabilityMatch(summaryRecord.firstMatch);
+                variabilityInfo = formatVariabilityMatchForExport(summaryRecord.firstMatch, star.ticId);
             }
 
             rows.push(`${star.ticId}\t\t${star.classification}\t\t${variabilityInfo}`);
@@ -1272,7 +1319,7 @@ async function downloadResults() {
             const summaryRecord = await variabilitySummaryStore.get(star.fileName);
             let variabilityInfo = '';
             if (summaryRecord && summaryRecord.firstMatch) {
-                variabilityInfo = formatVariabilityMatch(summaryRecord.firstMatch);
+                variabilityInfo = formatVariabilityMatchForExport(summaryRecord.firstMatch, star.ticId);
             }
 
             data.push({
@@ -1449,8 +1496,8 @@ async function findInformationAboutStars() {
 
         console.log('Calling checkStarsVariability with:', ticIds);
 
-        // Call the checkStarsVariability function
-        const result = await checkStarsVariability(ticIds);
+        // Call the checkStarsVariability function with 30 second timeout
+        const result = await checkStarsVariability(ticIds, 30000);
 
         console.log('checkStarsVariability result:', result);
 
@@ -1502,7 +1549,9 @@ async function findInformationAboutStars() {
         // Show user-friendly error message
         let errorMessage = 'Помилка при перевірці інформації про зірки.';
 
-        if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('timeout')) {
+        if (error.message.includes('timeout') || error.name === 'TimeoutError') {
+            errorMessage = 'Сервіс SIMBAD наразі недоступний. Спробуйте пізніше.';
+        } else if (error.message.includes('fetch') || error.message.includes('network')) {
             errorMessage += '\n\nПроблема з мережею. Перевірте інтернет-з\'єднання та спробуйте ще раз.';
         } else if (error.message) {
             errorMessage += `\n\nДеталі: ${error.message}`;

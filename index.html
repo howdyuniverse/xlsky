@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/idb@8.0.3/build/umd.min.js" integrity="sha256-WtuXFIosd0QA9LELWLublk6NIBdz6jlra33QdhaionA=" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.3.0/index.js" integrity="sha512-VPBAZRHzUvbArag6OZV13Tw5Ci4QOKRUdDPZFQwfYzHsM6PWWdDaa7e84yGsvM37BUucjtI4sR/p1Zg9h8Ixsg==" crossorigin="anonymous" referrerpolicy="no-referrer" type="module"></script>
+    <script src="https://cdn.jsdelivr.net/gh/howdyuniverse/starvars@v1.4.0/index.js" integrity="sha512-k9OJjGQltv4H2Kfaqw24YHwHKQEgKOCYBQv9AutEE1kKA6yWYspWNJUu2k8juwEjb8l0U4Rr7dHjfKuPORYbLg==" crossorigin="anonymous" referrerpolicy="no-referrer" type="module"></script>
 </head>
 <body>
     <!-- Header Bar -->
@@ -41,10 +41,10 @@
                         </button>
                     </div>
                     <div class="toolbar-group">
-                        <button id="top-download-btn" class="btn btn-info d-none">
+                        <button id="top-download-btn" class="btn btn-success d-none">
                             <i class="bi bi-download"></i> Скачати результати в XLS
                         </button>
-                        <button id="top-copy-btn" class="btn btn-success d-none">
+                        <button id="top-copy-btn" class="btn btn-info d-none">
                             <i class="bi bi-clipboard"></i> Копіювати результати
                         </button>
                         <button id="top-import-btn" class="btn btn-primary d-none">
@@ -53,7 +53,7 @@
                     </div>
                     <div class="toolbar-group">
                         <button id="top-find-info-btn" class="btn btn-secondary d-none">
-                            🪄 Знайти інформацію в Simbad
+                            🪄 Завантажити інформацію з Simbad
                         </button>
                     </div>
                 </div>
@@ -211,6 +211,7 @@
               <li><strong>"Номер TIC"</strong> — номери ваших зірок</li>
               <li><strong>"Відкривач"</strong> — <span class="text-danger">вам треба буде додати ваше ім'я</span></li>
               <li><strong>"Чи зоря змінна?"</strong> — ваші дані класифікації</li>
+              <li><strong>"Відома інформація про цю зорю в SIMBAD, AAVSO"</strong> — інформація з бази даних SIMBAD</li>
             </ul>
             <p class="mb-2">Тепер ви можете вставити результати в Google табличку:</p>
             <ol class="mb-3">
@@ -221,7 +222,7 @@
               <img src="how_to_paste_results.png" alt="Як вставити результати" class="img-fluid border rounded" style="max-height: 200px; width: auto;">
             </div>
             <div class="alert alert-warning mb-0" role="alert">
-              <strong>⚠️ Увага!</strong> Якщо в Google таблиці вже є попередні дані, спочатку видаліть їх, щоб вони не перемішалися з новими результатами.
+              <strong>⚠️ Увага!</strong> Будьте обережні, якщо у вашій таблиці вже є дані.
             </div>
           </div>
           <div class="modal-footer">
