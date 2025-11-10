@@ -42,13 +42,13 @@
                     </div>
                     <div class="toolbar-group">
                         <button id="top-download-btn" class="btn btn-success d-none">
-                            <i class="bi bi-download"></i> Скачати результати в XLS
+                            <i class="bi bi-download"></i> Скачати результати в .XLS
                         </button>
                         <button id="top-copy-btn" class="btn btn-info d-none">
                             <i class="bi bi-clipboard"></i> Копіювати результати
                         </button>
                         <button id="top-import-btn" class="btn btn-primary d-none">
-                            <i class="bi bi-file-earmark-arrow-up"></i> Імпортувати таблицю
+                            <i class="bi bi-file-earmark-arrow-up"></i> Імпорт таблиці
                         </button>
                     </div>
                     <div class="toolbar-group">
@@ -150,6 +150,14 @@
                             <option value="Ні">Ні</option>
                             <option value="Проблематично визначити">Проблематично визначити</option>
                             <option value="null">Не класифіковано</option>
+                        </select>
+                    </div>
+                    <div class="me-3">
+                        <label for="variability-info-filter-select" class="form-label">Відома інформація про зорю:</label>
+                        <select id="variability-info-filter-select" class="form-select-sm">
+                            <option value="all" selected>Всі</option>
+                            <option value="present">Присутня</option>
+                            <option value="absent">Відсутня</option>
                         </select>
                     </div>
                 </div>

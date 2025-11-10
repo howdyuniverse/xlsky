@@ -18,6 +18,7 @@ let currentClassificationImageUrl = null;
 let saveStateTimeout = null;
 let currentView = 'classifier'; // 'classifier' or 'results'
 let currentFilter = 'all'; // Current classification filter
+let currentVariabilityInfoFilter = 'all'; // Current variability info filter ('all', 'present', 'absent')
 let filteredStarsCount = 0; // Count of stars after applying filter
 
 // DOM Element References
@@ -47,6 +48,7 @@ const resultsTableBody = document.querySelector('#results-table tbody');
 const paginationControls = document.getElementById('pagination-controls');
 const rowsPerPageSelect = document.getElementById('rows-per-page-select');
 const classificationFilterSelect = document.getElementById('classification-filter-select');
+const variabilityInfoFilterSelect = document.getElementById('variability-info-filter-select');
 const confirmationModalEl = document.getElementById('confirmationModal');
 const confirmUploadBtn = document.getElementById('confirmUploadBtn');
 const copySuccessModalEl = document.getElementById('copySuccessModal');
@@ -390,6 +392,13 @@ rowsPerPageSelect.addEventListener('change', () => {
 
 classificationFilterSelect.addEventListener('change', async () => {
     currentFilter = classificationFilterSelect.value;
+    currentPage = 1; // Reset to first page when filter changes
+    await renderFinalResultsTable();
+    renderPaginationControls();
+});
+
+variabilityInfoFilterSelect.addEventListener('change', async () => {
+    currentVariabilityInfoFilter = variabilityInfoFilterSelect.value;
     currentPage = 1; // Reset to first page when filter changes
     await renderFinalResultsTable();
     renderPaginationControls();
@@ -799,15 +808,33 @@ async function renderFinalResultsTable() {
     const starsStore = tx.objectStore('stars');
     const allStars = await starsStore.getAll();
 
-    // Apply filter
+    // Apply filters
     let filteredStars = allStars;
+
+    // Apply classification filter
     if (currentFilter !== 'all') {
         if (currentFilter === 'null') {
             // Filter for unclassified stars (null)
-            filteredStars = allStars.filter(star => star.classification === null);
+            filteredStars = filteredStars.filter(star => star.classification === null);
         } else {
             // Filter for specific classification
-            filteredStars = allStars.filter(star => star.classification === currentFilter);
+            filteredStars = filteredStars.filter(star => star.classification === currentFilter);
+        }
+    }
+
+    // Apply variability info filter
+    if (currentVariabilityInfoFilter !== 'all') {
+        const tx2 = db.transaction('variabilitySummary', 'readonly');
+        const summaryStore = tx2.objectStore('variabilitySummary');
+        const allSummaries = await summaryStore.getAll();
+        const filesWithInfo = new Set(allSummaries.filter(s => s.firstMatch !== null).map(s => s.fileName));
+
+        if (currentVariabilityInfoFilter === 'present') {
+            // Filter stars with variability info (firstMatch not null)
+            filteredStars = filteredStars.filter(star => filesWithInfo.has(star.fileName));
+        } else if (currentVariabilityInfoFilter === 'absent') {
+            // Filter stars without variability info (firstMatch is null or no record)
+            filteredStars = filteredStars.filter(star => !filesWithInfo.has(star.fileName));
         }
     }
 
